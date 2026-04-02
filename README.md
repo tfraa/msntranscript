@@ -35,7 +35,7 @@ using **Python 3.9**.
 > The Imaging Transcriptomics Toolbox currently has known issues on
 > **Windows** and **macOS with Apple M-series chips**. If you run into
 > problems, please check the toolbox's repository for updates or
-> workarounds.
+> workarounds. Try to install those two packages with `--no-deps` first, and then install this package.
 ---
 
 ## Installation
@@ -44,10 +44,6 @@ using **Python 3.9**.
 
 - Python 3.9
 - [FreeSurfer](https://surfer.nmr.mgh.harvard.edu/) (for data collection; not required at runtime)
-
-### Install
-
-`imaging_transcriptomics` depends on `enigmatoolbox`, which has an upstream pip resolution conflict. Install those two packages with `--no-deps` first, then install `msnpip`:
 ---
 
 ## Quick Start
