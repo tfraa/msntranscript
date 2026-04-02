@@ -3,86 +3,51 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A modular Python pipeline for constructing **Morphometric Similarity Networks (MSN)** from FreeSurfer cortical data and linking regional brain patterns to gene expression through **Partial Least Squares (PLS) imaging transcriptomics** and **Gene Set Enrichment Analysis (GSEA)**.
+A modular Python pipeline for constructing **Morphometric Similarity Networks (MSN)** from FreeSurfer cortical data and linking regional brain patterns to gene expression through **Partial Least Squares (PLS)** and **Gene Set Enrichment Analysis (GSEA)**, using transcriptomic data from the Allen Human Brain Atlas.
+---
+
+> ⚠️ **This project is still under active development.** Features may change or break without notice.
+
+![Pipeline Overview](assets/MSNTRANSCRIPT.png)
 
 ---
 
-## Overview
+## Installation Notes
 
-This pipeline integrates structural MRI phenotypes with transcriptomic data from the Allen Human Brain Atlas to identify gene expression patterns associated with cortical morphometric differences between patient groups and healthy controls.
+> **Please read carefully before installing.**
 
-**Pipeline stages:**
+### 1. Imaging Transcriptomics Toolbox
 
-```
-FreeSurfer .stats files                     Pre-merged DataFrame
-        |                                           |
-        +-------------------+-------------------+
-                            |
-                            v
-              [ 1 ] DATA LOADING & MERGING
-                    FreeSurfer stats + demographics
-                            |
-                            v
-              [ 2 ] DATA PROCESSING
-                    Within-patient z-scoring (robust MAD)
-                    Mass univariate GLM (HC vs groups)
-                    MSN construction (Euclidean -> similarity)
-                    Node strength computation
-                            |
-                            v
-              [ 3 ] IMAGING TRANSCRIPTOMICS (PLS)
-                    PLS regression on 34 left-hemisphere regions
-                    vs Allen Brain Atlas gene expression
-                            |
-                            v
-              [ 4 ] GENE SET ENRICHMENT (GSEA)
-                    Preranked GSEA across bundled gene libraries
-                            |
-                            v
-              [ 5 ] VISUALIZATION
-                    Brain surface maps, bar plots, heatmaps,
-                    similarity matrices, enrichment charts
-                            |
-                            v
-              [ 6 ] PDF REPORT GENERATION
-```
+Follow the official installation instructions for the
+[Imaging Transcriptomics Toolbox](https://github.com/alegiac95/Imaging-transcriptomics)
+using **Python 3.9**.
 
----
+> ⚠️ **Known issue (ENIGMA version mismatch):**
+> During installation, you may encounter an error where the version
+> from the Git repository and the version in the local version file
+> do not match. To fix this, manually update the version number in
+> the ENIGMA version file to match the Git version, then re-run the
+> installation.
 
-## Features
+### 2. Platform-Specific Issues
 
-- Parses FreeSurfer `aparc.stats` files for 5 morphometric metrics across 68 cortical regions
-- Constructs morphometric similarity networks using multivariate Euclidean distances
-- Runs mass univariate GLM (OLS + FDR correction) comparing patient groups to healthy controls
-- Performs PLS imaging transcriptomics via the [`imaging_transcriptomics`](https://github.com/alegiac95/Imaging-transcriptomics) toolbox
-- Runs preranked GSEA against bundled gene libraries (GO Biological Process, KEGG, DisGeNET, LAKE cell types)
-- Generates brain surface visualizations on the fsaverage5 template
-- Produces a multi-page paginated PDF report with demographics, statistical summaries, and all figures
-- Supports **4 pipeline entry points** for resuming from any intermediate stage
-- Accepts a **pre-merged DataFrame directly** as input — useful for notebooks and reproducible workflows
-
+> ⚠️ **Windows & macOS (Apple Silicon):**
+> The Imaging Transcriptomics Toolbox currently has known issues on
+> **Windows** and **macOS with Apple M-series chips**. If you run into
+> problems, please check the toolbox's repository for updates or
+> workarounds.
 ---
 
 ## Installation
 
 ### Prerequisites
 
-- Python >= 3.9
+- Python 3.9
 - [FreeSurfer](https://surfer.nmr.mgh.harvard.edu/) (for data collection; not required at runtime)
 
 ### Install
 
 `imaging_transcriptomics` depends on `enigmatoolbox`, which has an upstream pip resolution conflict. Install those two packages with `--no-deps` first, then install `msnpip`:
-
-```bash
-git clone https://github.com/tfraa/msnpip.git
-cd msnpip
-
-pip install enigmatoolbox --no-deps
-pip install imaging-transcriptomics --no-deps
-pip install -e .
-```
-
 ---
 
 ## Quick Start
