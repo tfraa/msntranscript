@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Distribution / packaging
+*.egg-info/
+dist/
+build/
+*.egg
+
+# Logs
+*.log
+
+# Runtime outputs
+figures/
+output/
+
+# IDE / local config
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

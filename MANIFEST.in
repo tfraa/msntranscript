@@ -1,0 +1,2 @@
+recursive-include msnpip/data *
+recursive-include msnpip/genes *
