@@ -195,19 +195,6 @@ msnpip full
 
 ---
 
-## Citation
-
-If you use this pipeline in your work, please cite:
-
-```bibtex
-@mastersthesis{tomasella2026msn,
-  author  = {Tomasella, Francesco},
-  title   = {Morphometric Similarity Networks and Imaging Transcriptomics},
-  school  = {[Università di Padova]},
-  year    = {2026},
-}
-```
-
 ---
 
 ## License
