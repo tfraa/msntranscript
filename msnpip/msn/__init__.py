@@ -1,0 +1,3 @@
+"""
+MSN construction sub-package.
+"""

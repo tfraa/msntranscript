@@ -1,8 +1,3 @@
 """
-Input/Output utilities for loading and saving data
+I/O sub-package: reading, schema validation, ID matching, output writing.
 """
-
-from .loaders import FreeSurferLoader
-from .savers import save_dataframe, save_array, save_results, save_figure
-
-__all__ = ["FreeSurferLoader", "save_dataframe", "save_array", "save_results", "save_figure"]

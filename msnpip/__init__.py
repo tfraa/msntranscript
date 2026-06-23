@@ -1,9 +1,10 @@
 """
-Imaging Transcriptomics Pipeline
-A modular pipeline for processing FreeSurfer data and performing transcriptomic analysis
+msnpip 2.0 — Morphometric Similarity Network Imaging Transcriptomics Pipeline.
+
+Public surface (populated as phases are implemented):
+    Pipeline, PipelineConfig
 """
+from __future__ import annotations
 
-from .pipeline import Pipeline
-
-__version__ = "0.1.0"
-__all__ = ["Pipeline"]
+__version__ = "2.0.0"
+__all__: list[str] = []

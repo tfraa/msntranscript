@@ -2,19 +2,39 @@
 __pycache__/
 *.py[cod]
 *.pyo
+*.pyd
 
 # Distribution / packaging
 *.egg-info/
 dist/
 build/
 *.egg
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Lockfile (track this)
+# uv.lock is committed intentionally
 
 # Logs
 *.log
 
-# Runtime outputs
-figures/
+# Runtime outputs — never commit real data or pipeline artifacts
 output/
+figures/
+out/
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Mypy / ruff caches
+.mypy_cache/
+.ruff_cache/
 
 # IDE / local config
 .vscode/
@@ -23,3 +43,16 @@ output/
 # OS
 .DS_Store
 Thumbs.db
+
+# Data files — keep out of the repo (PII risk)
+*.csv
+*.tsv
+*.xlsx
+*.xls
+*.pkl
+*.pickle
+*.parquet
+*.npz
+*.npy
+# Exceptions: fixtures that ship with the package (none in v2)
+!tests/fixtures/*.csv
