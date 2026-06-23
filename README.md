@@ -1,202 +1,205 @@
 # msnpip — Morphometric Similarity Networks and Transcriptomics Pipeline
 
-
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-A modular Python pipeline for constructing **Morphometric Similarity Networks (MSN)** from FreeSurfer cortical data and linking regional brain patterns to gene expression through **Partial Least Squares (PLS)** and **Gene Set Enrichment Analysis (GSEA)**, using transcriptomic data from the Allen Human Brain Atlas.
+A modular Python pipeline that builds **Morphometric Similarity Networks (MSN)** from
+FreeSurfer cortical data, contrasts node strength between groups, and links the regional
+patterns to gene expression from the **Allen Human Brain Atlas** via **PLS** and enrichment
+(ensemble-GCEA + GSEA). The transcriptomics engine is the
+[Imaging Transcriptomics Toolbox](https://github.com/alegiac95/Imaging-transcriptomics)
+(v2.0.0), pinned to a fixed commit.
+
 ---
 
-> ⚠️ **This project is still under active development.** Features may change or break without notice.
+> ⚠️ **Active development.** Interfaces may change between phases.
 
 ![Pipeline Overview](assets/MSNTRANSCRIPT.png)
 
 ---
 
-## Installation Notes
+## What it does
 
-> **Please read carefully before installing.**
+```
+LOAD → VALIDATE → MSN → CONTRAST → (CORRELATION) → (SENSITIVITY) → TRANSCRIPTOMICS → FIGURES → REPORT
+```
 
-### 1. Imaging Transcriptomics Toolbox
+- **MSN** is a whole-cortex network: within-subject z-scored morphometric features
+  (`SurfArea, GrayVol, ThickAvg, MeanCurv, GausCurv`), Pearson similarity, signed-mean node
+  strength. Both hemispheres are always used upstream.
+- **Group contrast** per region (β / t / Cohen's d), with covariates of your choosing;
+  site/scanner are always one-hot encoded.
+- **Transcriptomics** runs inside the pinned engine with the **`vasa` surface-spin null**
+  (hard-fail if the spin assets are missing — no silent shuffle fallback).
+- **No pickle anywhere**: outputs are CSV / Parquet / NPZ / JSON / PNG / PDF only, with a
+  sha256 manifest.
 
-Follow the official installation instructions for the
-[Imaging Transcriptomics Toolbox](https://github.com/alegiac95/Imaging-transcriptomics)
-using **Python 3.9**.
-
-> ⚠️ **Known issue (ENIGMA version mismatch):**
-> During installation, you may encounter an error where the version
-> from the Git repository and the version in the local version file
-> do not match. To fix this, manually update the version number in
-> the ENIGMA version file to match the Git version, then re-run the
-> installation.
-
-### 2. Platform-Specific Issues
-
-> ⚠️ **Windows & macOS (Apple Silicon):**
-> The Imaging Transcriptomics Toolbox currently has known issues on
-> **Windows** and **macOS with Apple M-series chips**. If you run into
-> problems, please check the toolbox's repository for updates or
-> workarounds. Try to install those two packages with `--no-deps` first, and then install this package.
 ---
 
 ## Installation
 
-### Prerequisites
-
-- Python 3.9
-- [FreeSurfer](https://surfer.nmr.mgh.harvard.edu/) (for data collection; not required at runtime)
----
-
-## Quick Start
-
-### From FreeSurfer data (CLI)
-
 ```bash
-msnpip full \
-    --input  /path/to/freesurfer_subjects/ \
-    --demographics demographics.csv \
-    --output /path/to/output/ \
-    --save-figures
+# Python 3.12 recommended. The engine installs from a pinned git commit, so git is required.
+pip install -e .            # add [dev] for the test/lint toolchain: pip install -e ".[dev]"
 ```
 
-### From a pre-merged DataFrame (CLI)
-
-If you already have a CSV with morphometric features and demographics merged together:
-
-```bash
-msnpip full \
-    --dataframe merged_dataset.csv \
-    --output /path/to/output/ \
-    --save-figures
-```
-
-### From a pre-merged DataFrame (Python API)
+Verify the engine is wired up:
 
 ```python
-import pandas as pd
-from msnpip import Pipeline
-
-df = pd.read_csv("merged_dataset.csv")
-
-pipeline = Pipeline(save_all=True, save_figures=True)
-pipeline.run_full_pipeline(
-    dataframe=df,
-    output_pdf="output/",
-    groups=[0, 1, 2],
-)
+import imaging_transcriptomics as imt
+assert any(a.id == "dk" for a in imt.list_atlases())
 ```
 
-### Resume from intermediate results
+The first run that needs cortical surfaces will fetch the neuromaps fsaverage meshes; in
+Docker these are baked at build time (see below).
+
+---
+
+## Quick start
+
+### From FreeSurfer data
 
 ```bash
-# From pre-computed strength vectors (saved as strength_maps.pkl by the pipeline)
-msnpip from-vectors --vectors strength_maps.pkl --output output/
-
-# From PLS results
-msnpip from-pls --pls-results pls_results.pkl --output output/
-
-# From enrichment results (report only)
-msnpip from-enrichment --enrichment-results enrichment_results.pkl --output output/
+msnpip full \
+    --input /path/to/freesurfer_subjects/ \
+    --demographics demographics.csv \
+    --output out/ \
+    --group-col group --case FTD --control HC \
+    --predictors age sex tiv \
+    --atlas dk --hemisphere left --regions cort \
+    --method pls --ncomp 1 --n-perm 10000 \
+    --enrichment ensemble gsea
 ```
 
+### From a pre-merged DataFrame
+
+```bash
+msnpip full \
+    --dataframe merged.csv \
+    --output out/ \
+    --group-col group --case FTD --control HC \
+    --predictors age sex tiv --exclude-covariate age \
+    --correlate-with age --corr-scope global \
+    --atlas dk --method pls --ncomp 1 --n-perm 1000 --enrichment ensemble --seed 1234
+```
+
+### Python API
+
+```python
+from pathlib import Path
+from msnpip.config import IOConfig, GLMConfig, EngineConfig, PipelineConfig
+from msnpip.pipeline import run_pipeline
+
+cfg = PipelineConfig(
+    io=IOConfig(dataframe=Path("merged.csv")),
+    output=Path("out/"),
+    group_col="group", case="FTD", control="HC",
+    glm=GLMConfig(predictors=("age", "sex", "tiv")),
+    engine=EngineConfig(methods=("pls", "corr"), n_components=1, n_permutations=10000),
+)
+run_pipeline(cfg)
+```
+
+### Resume / partial runs
+
+```bash
+# Run only part of the pipeline:
+msnpip full ... --stop-stage MSN
+msnpip full ... --start-stage TRANSCRIPTOMICS     # reuses persisted earlier stages
+
+# Resume from a previous run's persisted strength maps:
+msnpip from-strength --output out/ --case FTD --control HC --predictors age sex tiv
+```
+
+Helpers: `msnpip list-atlases`, `msnpip list-genesets`.
+
 ---
 
-## Pipeline Stages
-
-| Stage | CLI command | Input | Output |
-|---|---|---|---|
-| Full pipeline | `full` | FreeSurfer dir + demographics CSV **or** pre-merged DataFrame | PDF report + figures |
-| From strength vectors | `from-vectors` | `.csv` of regional strength maps | PDF report |
-| From PLS results | `from-pls` | `.pkl` PLS results | PDF report |
-| From enrichment | `from-enrichment` | `.pkl` enrichment results | PDF report |
-
----
-
-## Input Data Format
+## Input data format
 
 ### FreeSurfer directory layout
 
 ```
 freesurfer_subjects/
-├── subject_001/
-│   └── stats/
-│       ├── lh.aparc.stats
-│       └── rh.aparc.stats
-├── subject_002/
-│   └── ...
+├── sub-001/stats/{lh,rh}.aparc.stats
+├── sub-002/stats/{lh,rh}.aparc.stats
+└── ...
 ```
 
-The pipeline extracts: `SurfArea`, `GrayVol`, `ThickAvg`, `MeanCurv`, `GausCurv` for all 68 Desikan-Killiany regions.
+Extracted metrics: `SurfArea, GrayVol, ThickAvg, MeanCurv, GausCurv` for the Desikan–Killiany
+cortical regions (34 per hemisphere).
 
-### Demographics CSV
+### Demographics / merged CSV
 
-Required columns (auto-detected, case-insensitive):
+Roles are auto-detected by **token** matching (so `subject_id` is found, but region columns
+like `lh_middletemporal_*` are never mistaken for an id):
 
-| Column | Description |
+| Role | Example column names |
 |---|---|
-| `patient_id` / `id` | Subject identifier |
-| `age` | Age in years |
-| `sex` / `gender` | Biological sex |
-| `tiv` / `icv` | Total intracranial volume |
-| `group` / `grp` | Group label (0 = healthy controls) |
+| id | `subject_id`, `participant_id`, `id` |
+| group | `group`, `diagnosis`, `dx` |
+| age | `age` |
+| sex | `sex`, `gender` |
+| tiv | `tiv`, `icv` |
+| site | `site`, `scanner` |
 
-### Pre-merged DataFrame
-
-When using `--dataframe` or the `dataframe=` API argument, provide a CSV that already contains both morphometric features and demographic columns. The pipeline validates the required columns before starting and raises a clear error if anything is missing.
-
-Expected feature column naming convention: `{hemisphere}_{region}_{metric}`
-
-Example: `lh_superiorfrontal_ThickAvg`, `rh_cuneus_SurfArea`
+IDs are matched **exactly after whitespace stripping** — `sub-001` and `sub-1` are distinct.
+Feature columns follow `{hemisphere}_{region}_{metric}`, e.g. `lh_superiorfrontal_ThickAvg`.
 
 ---
 
-## Output
-
-| File | Description |
-|---|---|
-| `Report.pdf` | Multi-page report with all figures and statistical summaries |
-| `figures/*.png` | Individual figures saved as PNG (when `--save-figures` is used) |
-| `merged_data.csv` | Merged input data (when `--save-all` is used) |
-| `strength_maps.pkl` | Regional strength vectors per group comparison |
-| `pls_results.pkl` | PLS gene results per group comparison |
-| `enrichment_results.pkl` | GSEA results per group comparison and gene library |
-| `{comparison}_{library}.csv` | Enrichment results as CSV tables |
-
----
-
-## Gene Libraries
-
-The following gene set libraries are bundled with the package:
-
-| Library | Description |
-|---|---|
-| `GO_Biological_Process_2025` | Gene Ontology Biological Process terms (2025) |
-| `KEGG_2021_H` | KEGG pathway database (2021, human) |
-| `DisGeNET` | Disease-gene association database |
-| `LAKE_Pooled` | Brain cell-type specific gene sets (Lake et al.) |
-
----
-
-## CLI Reference
+## Output tree
 
 ```
-msnpip full
-  --input PATH            FreeSurfer subjects directory
-  --demographics PATH     Demographics CSV file
-  --dataframe PATH        Pre-merged CSV (alternative to --input + --demographics)
-  --output PATH           Output directory for report and figures  [required]
-  --groups INT [INT ...]  Subset of group IDs to analyze
-  --save-figures          Save individual figures as PNG files
-  --figures-dir PATH      Directory for individual figures (default: ./figures)
-  --save-all              Save all intermediate results to disk
-  -v, --verbose           Enable debug-level logging
+out/
+  00_inputs/          merged_data.csv  schema.json  resolved_config.yaml  merge_report.json
+  01_msn/             strength_maps.csv  global_strength.csv  dropped_subjects.json
+                      per_subject_msn/<id>.npz
+  02_stats/           contrasts/<case>_vs_<ctrl>_contrast.csv
+                      correlation/<variable>__<scope>.csv
+                      sensitivity/<case>_vs_<ctrl>__drop_<cov>.csv
+  03_transcriptomics/ <case>_vs_<ctrl>/{pls,corr}/   ← engine bundle (TSV/JSON/PNG)
+  04_figures/         distributions/  surface/  correlation/
+  05_report/          Report.pdf  run_log.txt
+  manifest.json       sha256 of every artifact + msnpip/engine versions + seed + resolved config
 ```
 
-> **Gene libraries**: all `.gmt` files bundled in `msnpip/genes/` are used automatically — no flag needed.
+---
+
+## Docker
+
+```bash
+docker build -f docker/Dockerfile -t msnpip:2.0 .
+
+docker run --rm -v "$PWD/data:/data:ro" -v "$PWD/out:/out" msnpip:2.0 \
+  full --dataframe /data/merged.csv --output /out \
+  --group-col group --case FTD --control HC \
+  --predictors age sex tiv --atlas dk --method pls --ncomp 1 \
+  --n-perm 1000 --enrichment ensemble --seed 1234
+```
+
+The image bakes the neuromaps fsaverage cache so cortical plots and the spin null work
+offline.
 
 ---
+
+## Locked methodological decisions
+
+| Item | Value |
+|---|---|
+| Null model | `vasa` surface spin only; hard-fail if unavailable |
+| MSN | 5 features, within-subject z-score, Pearson, signed-mean strength, both hemispheres |
+| Contrast statistic | `beta` (default), `t`, or `cohen_d` |
+| Enrichment | `ensemble` primary + `gsea` secondary |
+| ID matching | exact after whitespace strip |
+| Persistence | no pickle — CSV/Parquet/NPZ/JSON only |
+| Site covariate | always one-hot |
+| Defaults | atlas `dk`, engine hemisphere `left`, regions `cort`, n-perm 10,000 |
+
+See [docs/statistics.md](docs/statistics.md) and [docs/engine_contract.md](docs/engine_contract.md)
+for details, and [docs/adding_an_atlas.md](docs/adding_an_atlas.md) to extend beyond DK.
 
 ---
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
+MIT — see [LICENSE](LICENSE).
