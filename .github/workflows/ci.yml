@@ -33,10 +33,18 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Cache neuromaps surface assets
+        uses: actions/cache@v4
+        with:
+          path: ~/neuromaps-data
+          key: neuromaps-fsaverage-v1
       - name: Install (engine resolves from pinned git SHA)
         run: |
           python -m pip install --upgrade pip
           python -m pip install -e ".[dev]"
+      - name: Pre-warm surface assets (so the figures stage renders + is covered)
+        run: |
+          python -c "import imaging_transcriptomics.outputs.brain as b; getattr(b,'fetch_standard_surface_meshes',lambda: None)()" || true
       - name: Unit + integration tests (engine mocked)
         env:
           MPLBACKEND: Agg
