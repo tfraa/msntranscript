@@ -6,6 +6,7 @@ The engine already writes per-contrast PNG/TSV bundles and msnpip writes its own
 MSN figures; the report stitches them into a single ``Report.pdf`` with a cover
 page of run provenance, plus a plain-text ``run_log.txt``.
 """
+
 from __future__ import annotations
 
 import logging
@@ -15,9 +16,9 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.image as mpimg  # noqa: E402
-import matplotlib.pyplot as plt  # noqa: E402
-from matplotlib.backends.backend_pdf import PdfPages  # noqa: E402
+import matplotlib.image as mpimg
+import matplotlib.pyplot as plt
+from matplotlib.backends.backend_pdf import PdfPages
 
 logger = logging.getLogger("msnpip.report.builder")
 
@@ -57,24 +58,47 @@ class ReportBuilder:
         lines = [
             ("msnpip 2.0 — analysis report", 18, "bold"),
             ("", 10, "normal"),
-            (f"atlas: {cfg.engine.atlas}    engine hemisphere: {cfg.engine.hemisphere}"
-             f"    regions: {cfg.engine.regions}", 11, "normal"),
-            (f"methods: {', '.join(cfg.engine.methods)}    null: {cfg.engine.null_method}"
-             f"    permutations: {cfg.engine.n_permutations}", 11, "normal"),
-            (f"enrichment: {', '.join(cfg.engine.enrichment_methods)}    seed: {cfg.engine.seed}", 11, "normal"),
+            (
+                f"atlas: {cfg.engine.atlas}    engine hemisphere: {cfg.engine.hemisphere}"
+                f"    regions: {cfg.engine.regions}",
+                11,
+                "normal",
+            ),
+            (
+                f"methods: {', '.join(cfg.engine.methods)}    null: {cfg.engine.null_method}"
+                f"    permutations: {cfg.engine.n_permutations}",
+                11,
+                "normal",
+            ),
+            (
+                f"enrichment: {', '.join(cfg.engine.enrichment_methods)}    seed: {cfg.engine.seed}",
+                11,
+                "normal",
+            ),
             ("", 8, "normal"),
-            (f"subjects: {sm.n_subjects if sm is not None else 'n/a'}"
-             f"    dropped: {len(sm.dropped_subjects) if sm is not None else 0}", 11, "normal"),
+            (
+                f"subjects: {sm.n_subjects if sm is not None else 'n/a'}"
+                f"    dropped: {len(sm.dropped_subjects) if sm is not None else 0}",
+                11,
+                "normal",
+            ),
             (f"contrasts: {', '.join(contrasts) if contrasts else 'none'}", 11, "normal"),
-            (f"correlations: {', '.join(v for v, _ in ctx.get('correlations', [])) or 'none'}", 11, "normal"),
+            (
+                f"correlations: {', '.join(v for v, _ in ctx.get('correlations', [])) or 'none'}",
+                11,
+                "normal",
+            ),
             (f"figure pages: {n_figures}", 11, "normal"),
         ]
         fig = plt.figure(figsize=(8.27, 11.69))  # A4 portrait
         fig.subplots_adjust(left=0.08, right=0.92, top=0.93, bottom=0.07)
-        ax = fig.add_axes([0, 0, 1, 1]); ax.axis("off")
+        ax = fig.add_axes([0, 0, 1, 1])
+        ax.axis("off")
         y = 0.92
         for text, size, weight in lines:
-            ax.text(0.08, y, text, fontsize=size, fontweight=weight, va="top", transform=ax.transAxes)
+            ax.text(
+                0.08, y, text, fontsize=size, fontweight=weight, va="top", transform=ax.transAxes
+            )
             y -= 0.035 + size * 0.0012
         pdf.savefig(fig)
         plt.close(fig)
@@ -86,7 +110,8 @@ class ReportBuilder:
             logger.warning("REPORT: could not read %s: %s", png, exc)
             return
         fig = plt.figure(figsize=(11.69, 8.27))  # A4 landscape
-        ax = fig.add_axes([0.03, 0.06, 0.94, 0.88]); ax.axis("off")
+        ax = fig.add_axes([0.03, 0.06, 0.94, 0.88])
+        ax.axis("off")
         ax.imshow(img)
         fig.text(0.03, 0.02, caption, fontsize=8, va="bottom", color="#555555")
         pdf.savefig(fig)

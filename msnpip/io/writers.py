@@ -2,6 +2,7 @@
 OutputManager: no-pickle persistence + sha256 manifest.
 Phase 1, Task T1.7.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -52,7 +53,7 @@ class OutputManager:
     # Sub-directory scoping
     # ------------------------------------------------------------------
 
-    def subdir(self, *parts: str) -> "OutputManager":
+    def subdir(self, *parts: str) -> OutputManager:
         """Return a child ``OutputManager`` rooted at ``output_dir/parts``.
 
         Artifacts written by the child are recorded in the child's manifest,
@@ -140,9 +141,7 @@ class OutputManager:
                 "Use write_array() for numpy data or write_table() for DataFrames."
             )
         sha = _sha256(path) if path.exists() else "missing"
-        self._artifacts.append(
-            {"path": str(path.relative_to(self.output_dir)), "sha256": sha}
-        )
+        self._artifacts.append({"path": str(path.relative_to(self.output_dir)), "sha256": sha})
 
     # ------------------------------------------------------------------
     # Manifest
@@ -177,6 +176,7 @@ class OutputManager:
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _sha256(path: Path) -> str:
     h = hashlib.sha256()

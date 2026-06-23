@@ -65,7 +65,16 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF"]
-ignore = ["E501"]
+ignore = [
+    "E501",     # line length handled by formatter
+    "RUF001",   # ambiguous unicode in strings (intentional: —, ×, ≥, • in scientific text)
+    "RUF002",   # ambiguous unicode in docstrings
+    "RUF003",   # ambiguous unicode in comments
+    "B905",     # zip() without strict= (our zips are over equal-length sequences)
+    "RUF059",   # unused unpacked variable (underscore convention is clear enough)
+    "C408",     # dict(a=1) kwargs idiom (matplotlib/config) is intentional
+    "UP017",    # datetime.UTC is 3.11+; code stays 3.10-compatible (timezone.utc)
+]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S101"]

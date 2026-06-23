@@ -6,6 +6,7 @@ See msnpip_refactor_spec.md §4.1.  The config is the single source of truth for
 a run: built from a YAML file and/or CLI flags, validated once, then serialized
 into the output manifest for provenance.
 """
+
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field, replace
@@ -42,7 +43,10 @@ class EngineConfig:
     n_permutations: int = 10000
     null_method: str = "vasa"
     require_surface_null: bool = True
-    enrichment_methods: tuple[Literal["ensemble", "gsea", "ora", "none"], ...] = ("ensemble", "gsea")
+    enrichment_methods: tuple[Literal["ensemble", "gsea", "ora", "none"], ...] = (
+        "ensemble",
+        "gsea",
+    )
     gene_sets: tuple[str, ...] = (
         "lake",
         "pooled",
@@ -135,16 +139,15 @@ class PipelineConfig:
 
             known = {a.id for a in imt.list_atlases()}
             if self.engine.atlas not in known:
-                errors.append(
-                    f"Unknown atlas {self.engine.atlas!r}. Available: {sorted(known)}"
-                )
+                errors.append(f"Unknown atlas {self.engine.atlas!r}. Available: {sorted(known)}")
         except Exception as exc:  # engine import/list failure is non-fatal to validation
             errors.append(f"Could not verify atlas against the engine: {exc}")
 
         # PLS needs exactly one of n_components / var.
-        if "pls" in self.engine.methods:
-            if (self.engine.n_components is None) == (self.engine.var is None):
-                errors.append("PLS requires exactly one of engine.n_components or engine.var.")
+        if "pls" in self.engine.methods and (
+            (self.engine.n_components is None) == (self.engine.var is None)
+        ):
+            errors.append("PLS requires exactly one of engine.n_components or engine.var.")
 
         # Need a group column to define a contrast.
         gcol = self.group_col or self.io.group_col
@@ -166,28 +169,42 @@ class PipelineConfig:
 
     # ------------------------------------------------------------------
     @classmethod
-    def from_yaml(cls, path: str | Path) -> "PipelineConfig":
+    def from_yaml(cls, path: str | Path) -> PipelineConfig:
         import yaml
 
         data = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
         return cls.from_dict(data)
 
     @classmethod
-    def from_dict(cls, data: dict) -> "PipelineConfig":
+    def from_dict(cls, data: dict) -> PipelineConfig:
         data = dict(data)
-        io = IOConfig(**_coerce_paths(data.pop("io", {}), ("freesurfer_dir", "demographics", "dataframe")))
+        io = IOConfig(
+            **_coerce_paths(data.pop("io", {}), ("freesurfer_dir", "demographics", "dataframe"))
+        )
         msn = MSNConfig(**_tuplify(data.pop("msn", {}), ("features",)))
-        glm = GLMConfig(**_tuplify(data.pop("glm", {}), ("predictors", "one_hot_always", "exclude_covariates")))
+        glm = GLMConfig(
+            **_tuplify(data.pop("glm", {}), ("predictors", "one_hot_always", "exclude_covariates"))
+        )
         corr = CorrelationConfig(**_tuplify(data.pop("correlation", {}), ("variables",)))
-        engine = EngineConfig(**_tuplify(data.pop("engine", {}), ("methods", "enrichment_methods", "gene_sets")))
+        engine = EngineConfig(
+            **_tuplify(data.pop("engine", {}), ("methods", "enrichment_methods", "gene_sets"))
+        )
         output = Path(data.pop("output"))
         contrasts = data.pop("contrasts", None)
         if contrasts is not None:
             contrasts = tuple(tuple(pair) for pair in contrasts)
-        return cls(io=io, output=output, msn=msn, glm=glm, correlation=corr,
-                   engine=engine, contrasts=contrasts, **data)
+        return cls(
+            io=io,
+            output=output,
+            msn=msn,
+            glm=glm,
+            correlation=corr,
+            engine=engine,
+            contrasts=contrasts,
+            **data,
+        )
 
-    def merged_with(self, **overrides) -> "PipelineConfig":
+    def merged_with(self, **overrides) -> PipelineConfig:
         """Return a copy with top-level fields overridden (CLI > YAML)."""
         return replace(self, **{k: v for k, v in overrides.items() if v is not None})
 
@@ -195,6 +212,7 @@ class PipelineConfig:
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+
 
 def _to_plain(obj):
     if isinstance(obj, dict):

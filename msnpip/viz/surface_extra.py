@@ -9,6 +9,7 @@ engine's ``plot_cortical_surface_map``.  When ``dorsal`` is requested we mirror
 the engine's matplotlib layout (RdBu_r, symmetric norm, horizontal colorbar)
 and add a top-down panel rendered with ``elev≈90``.
 """
+
 from __future__ import annotations
 
 import logging
@@ -16,7 +17,6 @@ from pathlib import Path
 
 import matplotlib.colors as mcolors
 import numpy as np
-
 from imaging_transcriptomics import plotting
 from imaging_transcriptomics.outputs import brain
 
@@ -67,8 +67,11 @@ def plot_surface_with_dorsal(
     # Lateral/medial only → the engine already does this well.
     if "dorsal" not in views:
         return plotting.plot_cortical_surface_map(
-            table, atlas_id=atlas_id, value_column=value_column,
-            title=title, output_path=output_path,
+            table,
+            atlas_id=atlas_id,
+            value_column=value_column,
+            title=title,
+            output_path=output_path,
         )
 
     _, plt = brain.matplotlib_backend()
@@ -98,12 +101,12 @@ def plot_surface_with_dorsal(
     def _render_hemi(ax, hemi: str, azim: float, elev: float | None) -> None:
         idx = hemi_index[hemi]
         coords, triangles = brain.load_surface_mesh(inflated_paths[idx])
-        label_array, code_to_name = brain.load_surface_parcellation(
-            str(atlas.surface_paths[idx])
-        )
+        label_array, code_to_name = brain.load_surface_parcellation(str(atlas.surface_paths[idx]))
         vertex_values = brain.vertex_values_for_hemisphere(
-            hemi_frames[hemi], value_column=value_column,
-            label_array=label_array, code_to_name=code_to_name,
+            hemi_frames[hemi],
+            value_column=value_column,
+            label_array=label_array,
+            code_to_name=code_to_name,
         )
         kwargs = dict(azim=azim, cmap=cmap, norm=norm)
         if elev is not None:
@@ -115,14 +118,20 @@ def plot_surface_with_dorsal(
     for view in views:
         if view == "lateral":
             for h in present:
-                panels.append((f"{h} lateral", lambda ax, h=h: _render_hemi(ax, h, _AZIM_LATERAL[h], None)))
+                panels.append(
+                    (f"{h} lateral", lambda ax, h=h: _render_hemi(ax, h, _AZIM_LATERAL[h], None))
+                )
         elif view == "medial":
             for h in present:
-                panels.append((f"{h} medial", lambda ax, h=h: _render_hemi(ax, h, _AZIM_MEDIAL[h], None)))
+                panels.append(
+                    (f"{h} medial", lambda ax, h=h: _render_hemi(ax, h, _AZIM_MEDIAL[h], None))
+                )
         else:  # dorsal — one panel, all present hemispheres from the top
+
             def _render_dorsal(ax):
                 for h in present:
                     _render_hemi(ax, h, _AZIM_DORSAL, _ELEV_DORSAL)
+
             panels.append(("dorsal", _render_dorsal))
 
     n = len(panels)
@@ -135,8 +144,15 @@ def plot_surface_with_dorsal(
         left = margin + i * (panel_w + margin)
         ax = fig.add_axes([left, 0.20, panel_w, 0.70], projection="3d")
         render(ax)
-        fig.text(left + panel_w / 2.0, 0.90, label, ha="center", va="bottom",
-                 fontsize=9.0, color="#334155")
+        fig.text(
+            left + panel_w / 2.0,
+            0.90,
+            label,
+            ha="center",
+            va="bottom",
+            fontsize=9.0,
+            color="#334155",
+        )
 
     fig.text(0.02, 0.97, title, ha="left", va="top", fontweight="bold", fontsize=12.0)
 

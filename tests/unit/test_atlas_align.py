@@ -1,22 +1,22 @@
 """Unit tests for msnpip.atlas_align — T1.6."""
+
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 import pytest
 
 from msnpip.atlas_align import (
-    engine_region_order,
     align_strength_to_atlas,
+    engine_region_order,
     to_region_table,
 )
 from msnpip.errors import AtlasAlignmentError
 from tests.fixtures.synthetic import DK_REGIONS
 
-
 # ---------------------------------------------------------------------------
 # engine_region_order
 # ---------------------------------------------------------------------------
+
 
 class TestEngineRegionOrder:
     def test_dk_left_cort_shape(self):
@@ -47,6 +47,7 @@ class TestEngineRegionOrder:
 # ---------------------------------------------------------------------------
 # align_strength_to_atlas
 # ---------------------------------------------------------------------------
+
 
 def _make_input(hemisphere: str = "left") -> tuple[np.ndarray, list[str]]:
     """Build a synthetic (values, region_labels) pair."""
@@ -103,30 +104,25 @@ class TestAlignStrengthToAtlas:
         values, labels = _make_input("left")
         labels[0] = "lh_TYPO_REGION"  # bad label
         with pytest.raises(AtlasAlignmentError, match="no matching MSN value"):
-            align_strength_to_atlas(
-                values, labels, atlas="dk", hemisphere="left", regions="cort"
-            )
+            align_strength_to_atlas(values, labels, atlas="dk", hemisphere="left", regions="cort")
 
     def test_wrong_hemi_prefix_raises(self):
         values, labels = _make_input("left")
         labels[0] = "xx_bankssts"  # unknown hemi prefix
         with pytest.raises(AtlasAlignmentError, match="format"):
-            align_strength_to_atlas(
-                values, labels, atlas="dk", hemisphere="left", regions="cort"
-            )
+            align_strength_to_atlas(values, labels, atlas="dk", hemisphere="left", regions="cort")
 
     def test_length_mismatch_raises(self):
         values = np.zeros(10)
         labels = [f"lh_{r}" for r in DK_REGIONS]  # 34 labels, 10 values
         with pytest.raises(ValueError, match="len\\(values\\)"):
-            align_strength_to_atlas(
-                values, labels, atlas="dk", hemisphere="left", regions="cort"
-            )
+            align_strength_to_atlas(values, labels, atlas="dk", hemisphere="left", regions="cort")
 
 
 # ---------------------------------------------------------------------------
 # to_region_table
 # ---------------------------------------------------------------------------
+
 
 class TestToRegionTable:
     def test_output_columns(self):

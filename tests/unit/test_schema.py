@@ -1,25 +1,27 @@
 """Unit tests for msnpip.io.schema — T1.3 and T1.4."""
+
 from __future__ import annotations
 
 import pandas as pd
 import pytest
 
 from msnpip.errors import SchemaError
-from msnpip.io.schema import detect_schema, validate_schema, ColumnSchema
+from msnpip.io.schema import ColumnSchema, detect_schema, validate_schema
 from tests.fixtures.synthetic import DK_REGIONS, MSN_METRICS
 
 
 def _make_df(n: int = 5) -> pd.DataFrame:
     """Minimal synthetic DataFrame matching the merged.csv structure."""
     import numpy as np
+
     rng = np.random.default_rng(0)
     data: dict = {
-        "subject_id": [f"sub-{i+1:03d}" for i in range(n)],
+        "subject_id": [f"sub-{i + 1:03d}" for i in range(n)],
         "group": ["FTD"] * (n // 2) + ["HC"] * (n - n // 2),
         "age": rng.integers(50, 80, n).astype(float).tolist(),
         "sex": ["M", "F"] * (n // 2) + (["M"] if n % 2 else []),
         "tiv": rng.normal(1500, 150, n).tolist(),
-        "site": [f"site{(i%2)+1}" for i in range(n)],
+        "site": [f"site{(i % 2) + 1}" for i in range(n)],
     }
     # Add a small set of feature columns
     for hemi in ("lh", "rh"):
@@ -74,15 +76,21 @@ class TestValidateSchema:
             validate_schema(df, schema)
 
     def test_no_feature_cols_raises(self):
-        df = pd.DataFrame({
-            "subject_id": ["a", "b"],
-            "group": ["HC", "FTD"],
-        })
+        df = pd.DataFrame(
+            {
+                "subject_id": ["a", "b"],
+                "group": ["HC", "FTD"],
+            }
+        )
         schema = ColumnSchema(
             id_col="subject_id",
             group_col="group",
-            age_col=None, sex_col=None, tiv_col=None,
-            site_cols=[], feature_cols=[], other_cols=[],
+            age_col=None,
+            sex_col=None,
+            tiv_col=None,
+            site_cols=[],
+            feature_cols=[],
+            other_cols=[],
         )
         with pytest.raises(SchemaError, match="No feature columns"):
             validate_schema(df, schema)

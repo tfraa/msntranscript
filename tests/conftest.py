@@ -1,6 +1,7 @@
 """
 pytest configuration and shared session-scoped fixtures.
 """
+
 from __future__ import annotations
 
 import pytest

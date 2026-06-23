@@ -1,4 +1,5 @@
 """Unit tests for msnpip.stats.correlation — T2.5. Validated vs scipy."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -27,7 +28,11 @@ class TestCorrelateDemographic:
     def test_global_matches_scipy_spearman(self, cohort):
         df, schema, sm_maps, _ = cohort
         res = correlate_strength_with_demographic(
-            sm_maps, df, schema, variable="age", scope="global",
+            sm_maps,
+            df,
+            schema,
+            variable="age",
+            scope="global",
         )
         aligned = df.set_index(df["subject_id"].astype(str)).loc[sm_maps.subject_ids]
         expected = sp_stats.spearmanr(sm_maps.global_strength, aligned["age"].to_numpy())
@@ -38,7 +43,11 @@ class TestCorrelateDemographic:
     def test_regional_shapes_and_fdr(self, cohort):
         df, schema, sm_maps, _ = cohort
         res = correlate_strength_with_demographic(
-            sm_maps, df, schema, variable="age", scope="regional",
+            sm_maps,
+            df,
+            schema,
+            variable="age",
+            scope="regional",
         )
         assert res.r.shape == (34,)
         assert res.p.shape == (34,)
@@ -55,7 +64,12 @@ class TestCorrelateDemographic:
     def test_pearson_method(self, cohort):
         df, schema, sm_maps, _ = cohort
         res = correlate_strength_with_demographic(
-            sm_maps, df, schema, variable="age", scope="global", method="pearson",
+            sm_maps,
+            df,
+            schema,
+            variable="age",
+            scope="global",
+            method="pearson",
         )
         aligned = df.set_index(df["subject_id"].astype(str)).loc[sm_maps.subject_ids]
         expected = sp_stats.pearsonr(sm_maps.global_strength, aligned["age"].to_numpy())
@@ -64,7 +78,11 @@ class TestCorrelateDemographic:
     def test_within_group_filters(self, cohort):
         df, schema, sm_maps, info = cohort
         res = correlate_strength_with_demographic(
-            sm_maps, df, schema, variable="age", scope="global",
+            sm_maps,
+            df,
+            schema,
+            variable="age",
+            scope="global",
             within_group=info["case_label"],
         )
         assert res.n == info["n_case"]
@@ -74,12 +92,19 @@ class TestCorrelateDemographic:
         df, schema, sm_maps, _ = cohort
         with pytest.raises(SchemaError, match="numeric"):
             correlate_strength_with_demographic(
-                sm_maps, df, schema, variable="sex", scope="global",
+                sm_maps,
+                df,
+                schema,
+                variable="sex",
+                scope="global",
             )
 
     def test_missing_variable_raises(self, cohort):
         df, schema, sm_maps, _ = cohort
         with pytest.raises(SchemaError, match="not found"):
             correlate_strength_with_demographic(
-                sm_maps, df, schema, variable="nope",
+                sm_maps,
+                df,
+                schema,
+                variable="nope",
             )

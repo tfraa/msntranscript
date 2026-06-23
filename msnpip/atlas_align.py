@@ -2,15 +2,15 @@
 Alignment layer: reorder MSN regional values to the engine atlas label order.
 Phase 1, Task T1.6.
 """
+
 from __future__ import annotations
 
 import logging
-from typing import Sequence
-
-import numpy as np
-import pandas as pd
+from collections.abc import Sequence
 
 import imaging_transcriptomics as imt
+import numpy as np
+import pandas as pd
 
 from msnpip.errors import AtlasAlignmentError
 
@@ -23,6 +23,7 @@ _HEMI_CODE: dict[str, str] = {"lh": "L", "rh": "R"}
 # ---------------------------------------------------------------------------
 # T1.6 — engine_region_order
 # ---------------------------------------------------------------------------
+
 
 def engine_region_order(atlas: str, hemisphere: str, regions: str) -> pd.DataFrame:
     """Return the canonical atlas label DataFrame from the engine.
@@ -49,6 +50,7 @@ def engine_region_order(atlas: str, hemisphere: str, regions: str) -> pd.DataFra
 # ---------------------------------------------------------------------------
 # T1.6 — align_strength_to_atlas
 # ---------------------------------------------------------------------------
+
 
 def align_strength_to_atlas(
     values: np.ndarray,
@@ -92,9 +94,7 @@ def align_strength_to_atlas(
     region_labels = list(region_labels)
 
     if len(values) != len(region_labels):
-        raise ValueError(
-            f"len(values)={len(values)} != len(region_labels)={len(region_labels)}"
-        )
+        raise ValueError(f"len(values)={len(values)} != len(region_labels)={len(region_labels)}")
 
     # Build lookup: (engine_hemi_code, aparc_label) → value
     lookup: dict[tuple[str, str], float] = {}
@@ -123,7 +123,8 @@ def align_strength_to_atlas(
     if missing:
         raise AtlasAlignmentError(
             f"{len(missing)} engine region(s) have no matching MSN value:\n"
-            + "  " + ", ".join(missing[:20])
+            + "  "
+            + ", ".join(missing[:20])
             + ("\n  …" if len(missing) > 20 else "")
             + "\nCheck that the MSN was built from the correct atlas and hemisphere. "
             "Region names and hemisphere prefixes must match exactly."
@@ -131,7 +132,10 @@ def align_strength_to_atlas(
 
     logger.debug(
         "align_strength_to_atlas: atlas=%s hemi=%s regions=%s → %d values aligned",
-        atlas, hemisphere, regions, len(aligned),
+        atlas,
+        hemisphere,
+        regions,
+        len(aligned),
     )
     return np.array(aligned, dtype=float), labels_df.copy()
 
@@ -139,6 +143,7 @@ def align_strength_to_atlas(
 # ---------------------------------------------------------------------------
 # T1.6 — to_region_table
 # ---------------------------------------------------------------------------
+
 
 def to_region_table(
     values: np.ndarray,
@@ -169,9 +174,7 @@ def to_region_table(
     """
     values = np.asarray(values, dtype=float)
     if len(values) != len(labels_df):
-        raise ValueError(
-            f"len(values)={len(values)} != len(labels_df)={len(labels_df)}"
-        )
+        raise ValueError(f"len(values)={len(values)} != len(labels_df)={len(labels_df)}")
     table = labels_df[["id", "label", "hemisphere", "structure"]].copy()
     table[value_column] = values
     return table.reset_index(drop=True)

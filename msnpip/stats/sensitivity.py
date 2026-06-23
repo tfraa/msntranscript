@@ -7,6 +7,7 @@ dropped and quantify how much the regional map moves.  A high Spearman rank
 correlation between the full and reduced maps means the contrast is robust to
 that covariate's inclusion.
 """
+
 from __future__ import annotations
 
 import logging
@@ -28,7 +29,7 @@ class SensitivityResult:
     full: GroupContrastResult
     reduced: GroupContrastResult
     dropped: list[str]
-    rank_corr: float           # Spearman r between full and reduced regional maps
+    rank_corr: float  # Spearman r between full and reduced regional maps
     rank_corr_p: float
     stat_type: str
     region_labels: list[str] = field(default_factory=list)
@@ -80,9 +81,7 @@ def covariate_exclusion_contrast(
         group_col=group_col,
         stat=stat,
     )
-    full = regional_group_contrast(
-        strength_maps, df, schema, covariates=full_covariates, **common
-    )
+    full = regional_group_contrast(strength_maps, df, schema, covariates=full_covariates, **common)
     reduced = regional_group_contrast(
         strength_maps, df, schema, covariates=reduced_covariates, **common
     )
@@ -98,7 +97,10 @@ def covariate_exclusion_contrast(
 
     logger.info(
         "covariate_exclusion_contrast: dropped=%s stat=%s rank_corr=%.4f (p=%.3g)",
-        drop_list, stat, rank_corr, rank_corr_p,
+        drop_list,
+        stat,
+        rank_corr,
+        rank_corr_p,
     )
 
     return SensitivityResult(

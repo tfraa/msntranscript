@@ -2,6 +2,7 @@
 ColumnSchema dataclass, detect_schema, validate_schema.
 Phase 1, Tasks T1.3–T1.4.
 """
+
 from __future__ import annotations
 
 import logging
@@ -33,12 +34,21 @@ def _matches_keyword(col: str, keyword: str) -> bool:
     n, m = len(col_tokens), len(kw_tokens)
     return any(col_tokens[i : i + m] == kw_tokens for i in range(n - m + 1))
 
+
 # ---------------------------------------------------------------------------
 # Column role aliases (case-insensitive substring match)
 # ---------------------------------------------------------------------------
 
-_ID_KEYWORDS = ("subject_id", "participant_id", "patient_id", "subjectid",
-                 "participantid", "patientid", "sub_id", "id")
+_ID_KEYWORDS = (
+    "subject_id",
+    "participant_id",
+    "patient_id",
+    "subjectid",
+    "participantid",
+    "patientid",
+    "sub_id",
+    "id",
+)
 _GROUP_KEYWORDS = ("group", "grp", "diagnosis", "dx", "label", "class", "condition")
 _AGE_KEYWORDS = ("age",)
 _SEX_KEYWORDS = ("sex", "gender")
@@ -78,6 +88,7 @@ class ColumnSchema:
 # T1.3 — detect_schema
 # ---------------------------------------------------------------------------
 
+
 def detect_schema(
     df: pd.DataFrame,
     expected_regions: list[str] | None = None,
@@ -108,8 +119,7 @@ def detect_schema(
 
     def _find(keywords: tuple[str, ...], label: str, required: bool = False) -> str | None:
         candidates = [
-            c for c in cols
-            if c not in assigned and any(_matches_keyword(c, kw) for kw in keywords)
+            c for c in cols if c not in assigned and any(_matches_keyword(c, kw) for kw in keywords)
         ]
         if not candidates:
             if required:
@@ -118,7 +128,9 @@ def detect_schema(
         if len(candidates) > 1:
             logger.warning(
                 "Multiple candidates for '%s': %s — using '%s'",
-                label, candidates, candidates[0],
+                label,
+                candidates,
+                candidates[0],
             )
         assigned.add(candidates[0])
         return candidates[0]
@@ -134,7 +146,8 @@ def detect_schema(
 
     # Site columns: may be multiple (multiple scanners one-hot encoded)
     site_cols = [
-        c for c in cols
+        c
+        for c in cols
         if c not in assigned and any(_matches_keyword(c, kw) for kw in _SITE_KEYWORDS)
     ]
     assigned.update(site_cols)
@@ -151,8 +164,7 @@ def detect_schema(
     else:
         # Fall back: any remaining numeric column is a feature
         feature_cols = [
-            c for c in cols
-            if c not in assigned and pd.api.types.is_numeric_dtype(df[c])
+            c for c in cols if c not in assigned and pd.api.types.is_numeric_dtype(df[c])
         ]
     assigned.update(feature_cols)
 
@@ -171,7 +183,13 @@ def detect_schema(
 
     logger.debug(
         "detect_schema: id=%s group=%s age=%s sex=%s tiv=%s sites=%s features=%d",
-        id_col, group_col, age_col, sex_col, tiv_col, site_cols, len(feature_cols),
+        id_col,
+        group_col,
+        age_col,
+        sex_col,
+        tiv_col,
+        site_cols,
+        len(feature_cols),
     )
     return schema
 
@@ -179,6 +197,7 @@ def detect_schema(
 # ---------------------------------------------------------------------------
 # T1.4 — validate_schema
 # ---------------------------------------------------------------------------
+
 
 def validate_schema(
     df: pd.DataFrame,
@@ -227,10 +246,7 @@ def validate_schema(
     if not schema.feature_cols:
         errors.append("No feature columns detected. Ensure morphometric data is present.")
     else:
-        object_feats = [
-            c for c in schema.feature_cols
-            if df[c].dtype == object
-        ]
+        object_feats = [c for c in schema.feature_cols if df[c].dtype == object]
         if object_feats:
             errors.append(
                 f"{len(object_feats)} feature column(s) have object dtype (likely locale issue "
@@ -246,9 +262,7 @@ def validate_schema(
     # Correlation columns exist and are numeric
     for col in correlation_cols:
         if col not in df.columns:
-            errors.append(
-                f"Correlation variable '{col}' not found. Available: {list(df.columns)}"
-            )
+            errors.append(f"Correlation variable '{col}' not found. Available: {list(df.columns)}")
         elif not pd.api.types.is_numeric_dtype(df[col]):
             errors.append(
                 f"Correlation variable '{col}' is not numeric (dtype={df[col].dtype}). "

@@ -1,7 +1,7 @@
 """Unit tests for msnpip.stats.sensitivity — T2.6."""
+
 from __future__ import annotations
 
-import numpy as np
 import pandas as pd
 import pytest
 from scipy import stats as sp_stats
@@ -25,9 +25,13 @@ class TestCovariateExclusionContrast:
     def test_dropped_and_reduced_covariates(self, cohort):
         df, schema, sm_maps, info = cohort
         res = covariate_exclusion_contrast(
-            sm_maps, df, schema,
-            case_label=info["case_label"], control_label=info["control_label"],
-            full_covariates=["age", "tiv", "sex"], drop="tiv",
+            sm_maps,
+            df,
+            schema,
+            case_label=info["case_label"],
+            control_label=info["control_label"],
+            full_covariates=["age", "tiv", "sex"],
+            drop="tiv",
         )
         assert res.dropped == ["tiv"]
         assert res.full.covariates == ["age", "tiv", "sex"]
@@ -36,9 +40,13 @@ class TestCovariateExclusionContrast:
     def test_rank_corr_matches_spearman_of_maps(self, cohort):
         df, schema, sm_maps, info = cohort
         res = covariate_exclusion_contrast(
-            sm_maps, df, schema,
-            case_label=info["case_label"], control_label=info["control_label"],
-            full_covariates=["age", "tiv"], drop="tiv",
+            sm_maps,
+            df,
+            schema,
+            case_label=info["case_label"],
+            control_label=info["control_label"],
+            full_covariates=["age", "tiv"],
+            drop="tiv",
         )
         expected = sp_stats.spearmanr(res.full.regional_stat, res.reduced.regional_stat)
         assert res.rank_corr == pytest.approx(expected.statistic, rel=1e-9)
@@ -49,18 +57,26 @@ class TestCovariateExclusionContrast:
         # 'site' is round-robin assigned and unrelated to the synthetic strength,
         # so the map should barely move when it is dropped.
         res = covariate_exclusion_contrast(
-            sm_maps, df, schema,
-            case_label=info["case_label"], control_label=info["control_label"],
-            full_covariates=["age", "site"], drop="site",
+            sm_maps,
+            df,
+            schema,
+            case_label=info["case_label"],
+            control_label=info["control_label"],
+            full_covariates=["age", "site"],
+            drop="site",
         )
         assert res.rank_corr > 0.8
 
     def test_drop_list_accepted(self, cohort):
         df, schema, sm_maps, info = cohort
         res = covariate_exclusion_contrast(
-            sm_maps, df, schema,
-            case_label=info["case_label"], control_label=info["control_label"],
-            full_covariates=["age", "tiv", "sex"], drop=["tiv", "sex"],
+            sm_maps,
+            df,
+            schema,
+            case_label=info["case_label"],
+            control_label=info["control_label"],
+            full_covariates=["age", "tiv", "sex"],
+            drop=["tiv", "sex"],
         )
         assert res.dropped == ["tiv", "sex"]
         assert res.reduced.covariates == ["age"]

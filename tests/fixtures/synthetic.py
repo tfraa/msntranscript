@@ -6,6 +6,7 @@ temporary directory and returns a dict describing what was created.  Tests
 toggle locale_quirks and id_quirks to drive the robustness paths in
 io/readers.py and io/matching.py.
 """
+
 from __future__ import annotations
 
 import textwrap
@@ -162,7 +163,7 @@ def make_synthetic_cohort(
     if id_quirks:
         csv_ids = list(raw_ids)
         csv_ids[0] = csv_ids[0].replace("001", "1")  # drop leading zeros
-        csv_ids[1] = csv_ids[1] + " "               # trailing space
+        csv_ids[1] = csv_ids[1] + " "  # trailing space
     else:
         csv_ids = list(raw_ids)
 
@@ -200,9 +201,7 @@ def make_synthetic_cohort(
 
     # --- Wide merged CSV (single-file dataframe mode) ---
     rows: list[dict] = []
-    for raw_id, csv_id, group, age, sex, tiv, site in zip(
-        raw_ids, csv_ids, groups, ages, sexes, tivs, site_labels
-    ):
+    for csv_id, group, age, sex, tiv, site in zip(csv_ids, groups, ages, sexes, tivs, site_labels):
         row: dict = {
             "subject_id": csv_id,
             "group": group,

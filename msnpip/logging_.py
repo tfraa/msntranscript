@@ -9,6 +9,7 @@ Usage (in every module)::
 Call ``configure_logging(verbose=...)`` once from ``cli.py`` or
 ``Pipeline.__init__`` before any stage runs.
 """
+
 from __future__ import annotations
 
 import logging

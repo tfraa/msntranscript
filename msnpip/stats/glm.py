@@ -8,6 +8,7 @@ real-world locale/coding bugs were caught.  Categorical predictors (sex, site)
 are always one-hot encoded with a dropped reference level; site coding is a
 locked decision.
 """
+
 from __future__ import annotations
 
 import logging
@@ -25,6 +26,7 @@ logger = logging.getLogger("msnpip.stats.glm")
 # ---------------------------------------------------------------------------
 # T2.3 — build_design_matrix
 # ---------------------------------------------------------------------------
+
 
 def build_design_matrix(
     df: pd.DataFrame,
@@ -64,8 +66,7 @@ def build_design_matrix(
     missing = [c for c in predictors if c not in df.columns]
     if missing:
         raise SchemaError(
-            f"Design predictors not found in DataFrame: {missing}. "
-            f"Available: {list(df.columns)}"
+            f"Design predictors not found in DataFrame: {missing}. Available: {list(df.columns)}"
         )
 
     pieces: list[pd.DataFrame] = []
@@ -93,16 +94,17 @@ def build_design_matrix(
 # T2.3 — fit_ols
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class OLSResult:
     """Result of an ordinary-least-squares fit."""
 
-    params: np.ndarray         # (n_terms,)
-    se: np.ndarray             # (n_terms,)
-    tvalues: np.ndarray        # (n_terms,)
-    pvalues: np.ndarray        # (n_terms,) two-sided
-    resid: np.ndarray          # (n_obs,)
-    fitted: np.ndarray         # (n_obs,)
+    params: np.ndarray  # (n_terms,)
+    se: np.ndarray  # (n_terms,)
+    tvalues: np.ndarray  # (n_terms,)
+    pvalues: np.ndarray  # (n_terms,) two-sided
+    resid: np.ndarray  # (n_obs,)
+    fitted: np.ndarray  # (n_obs,)
     df_resid: int
     rank: int
     colnames: list[str]
@@ -179,6 +181,7 @@ def fit_ols(X, y) -> OLSResult:
 # T2.3 — residualize
 # ---------------------------------------------------------------------------
 
+
 def residualize(y, covariates, *, add_intercept: bool = True, add_back_mean: bool = False):
     """Regress *y* on *covariates* and return the residuals.
 
@@ -223,6 +226,7 @@ def residualize(y, covariates, *, add_intercept: bool = True, add_back_mean: boo
 # T2.4 — regional_group_contrast
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class GroupContrastResult:
     """Per-region case-vs-control contrast map.
@@ -231,13 +235,13 @@ class GroupContrastResult:
     :func:`msnpip.atlas_align.align_strength_to_atlas` directly.
     """
 
-    regional_stat: np.ndarray      # (n_regions,)
+    regional_stat: np.ndarray  # (n_regions,)
     region_labels: list[str]
-    stat_type: str                 # "beta" | "t" | "cohen_d"
+    stat_type: str  # "beta" | "t" | "cohen_d"
     covariates: list[str] = field(default_factory=list)
     n_case: int = 0
     n_control: int = 0
-    group_term: str = ""           # design column the statistic was read from
+    group_term: str = ""  # design column the statistic was read from
     atlas: str = "dk"
     hemisphere: str = "left"
     regions: str = "cort"
@@ -342,9 +346,7 @@ def regional_group_contrast(
     n_case = int(group_indicator.sum())
     n_control = int(len(sub) - n_case)
     if n_case < 1 or n_control < 1:
-        raise SchemaError(
-            f"Each arm needs ≥1 subject (case={n_case}, control={n_control})."
-        )
+        raise SchemaError(f"Each arm needs ≥1 subject (case={n_case}, control={n_control}).")
 
     # Build the design once: intercept + group + covariates.
     design_input = sub[covariates].copy() if covariates else pd.DataFrame(index=sub.index)
@@ -375,7 +377,11 @@ def regional_group_contrast(
 
     logger.info(
         "regional_group_contrast: stat=%s case=%d control=%d covariates=%s → %d regions",
-        stat, n_case, n_control, covariates, n_regions,
+        stat,
+        n_case,
+        n_control,
+        covariates,
+        n_regions,
     )
 
     return GroupContrastResult(

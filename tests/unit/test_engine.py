@@ -2,6 +2,7 @@
 
 The real engine is exercised once in test_engine_integration.py (slow).
 """
+
 from __future__ import annotations
 
 import types
@@ -15,10 +16,10 @@ from msnpip.config import EngineConfig
 from msnpip.engine import _primary_enrichment, run_transcriptomics
 from msnpip.errors import MsnpipEngineError, MsnpipSurfaceNullError
 
-
 # ---------------------------------------------------------------------------
 # Fakes
 # ---------------------------------------------------------------------------
+
 
 def _fake_result(null_method: str = "vasa"):
     """A minimal stand-in for PLSResult/CorrelationResult."""
@@ -26,7 +27,9 @@ def _fake_result(null_method: str = "vasa"):
 
 
 def _labels_df(n_left: int = 34, n_right: int = 0) -> pd.DataFrame:
-    rows = [{"id": i, "label": f"r{i}", "hemisphere": "L", "structure": "cort"} for i in range(n_left)]
+    rows = [
+        {"id": i, "label": f"r{i}", "hemisphere": "L", "structure": "cort"} for i in range(n_left)
+    ]
     rows += [
         {"id": n_left + i, "label": f"r{i}", "hemisphere": "R", "structure": "cort"}
         for i in range(n_right)
@@ -56,6 +59,7 @@ def patched_engine(monkeypatch):
 # _primary_enrichment
 # ---------------------------------------------------------------------------
 
+
 class TestPrimaryEnrichment:
     def test_ensemble_is_primary_over_gsea(self):
         assert _primary_enrichment(("ensemble", "gsea")) == "ensemble"
@@ -70,6 +74,7 @@ class TestPrimaryEnrichment:
 # ---------------------------------------------------------------------------
 # run_transcriptomics — happy path
 # ---------------------------------------------------------------------------
+
 
 class TestRunTranscriptomics:
     def test_runs_all_methods(self, patched_engine, tmp_path):
@@ -121,6 +126,7 @@ class TestRunTranscriptomics:
 # Error paths
 # ---------------------------------------------------------------------------
 
+
 class TestErrors:
     def test_length_mismatch_raises(self, patched_engine, tmp_path):
         cfg = EngineConfig(n_permutations=10)
@@ -130,6 +136,7 @@ class TestErrors:
     def test_surface_null_fallback_raises(self, monkeypatch, tmp_path):
         def fallback_pls(data, **kwargs):
             return _fake_result(null_method="random")
+
         monkeypatch.setattr(engine.imt, "run_pls", fallback_pls, raising=False)
         cfg = EngineConfig(methods=("pls",), n_permutations=10)
         with pytest.raises(MsnpipSurfaceNullError, match="random"):
@@ -138,6 +145,7 @@ class TestErrors:
     def test_require_surface_null_false_allows_random(self, monkeypatch, tmp_path):
         def fallback_pls(data, **kwargs):
             return _fake_result(null_method="random")
+
         monkeypatch.setattr(engine.imt, "run_pls", fallback_pls, raising=False)
         cfg = EngineConfig(methods=("pls",), require_surface_null=False, n_permutations=10)
         out = run_transcriptomics(np.arange(34.0), _labels_df(34), cfg, tmp_path, "tag")
@@ -146,6 +154,7 @@ class TestErrors:
     def test_engine_exception_wrapped(self, monkeypatch, tmp_path):
         def boom(data, **kwargs):
             raise ValueError("engine exploded")
+
         monkeypatch.setattr(engine.imt, "run_pls", boom, raising=False)
         cfg = EngineConfig(methods=("pls",), n_permutations=10)
         with pytest.raises(MsnpipEngineError, match="exploded") as excinfo:

@@ -8,6 +8,7 @@ Subcommands:
   list-atlases   print the engine's atlas table
   list-genesets  print the default gene sets
 """
+
 from __future__ import annotations
 
 import argparse
@@ -29,7 +30,10 @@ logger = get_logger("msnpip.cli")
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(prog="msnpip", description="Morphometric Similarity Network → imaging transcriptomics pipeline")
+    p = argparse.ArgumentParser(
+        prog="msnpip",
+        description="Morphometric Similarity Network → imaging transcriptomics pipeline",
+    )
     sub = p.add_subparsers(dest="command", required=True)
 
     full = sub.add_parser("full", help="run the whole pipeline")
@@ -117,14 +121,26 @@ def _add_engine_args(ap):
 def _cfg_from_args(args) -> PipelineConfig:
     """Build a PipelineConfig from parsed `full`/`from-strength` args (CLI > YAML)."""
     methods = tuple(args.method) if getattr(args, "method", None) else ("pls", "corr")
-    enrichment = tuple(args.enrichment) if getattr(args, "enrichment", None) else ("ensemble", "gsea")
-    n_components = None if getattr(args, "var", None) is not None else (args.ncomp if args.ncomp is not None else 1)
+    enrichment = (
+        tuple(args.enrichment) if getattr(args, "enrichment", None) else ("ensemble", "gsea")
+    )
+    n_components = (
+        None
+        if getattr(args, "var", None) is not None
+        else (args.ncomp if args.ncomp is not None else 1)
+    )
 
     engine_kw = dict(
-        methods=methods, atlas=args.atlas, hemisphere=args.hemisphere,
+        methods=methods,
+        atlas=args.atlas,
+        hemisphere=args.hemisphere,
         compare_hemispheres=getattr(args, "compare_hemispheres", False),
-        regions=args.regions, n_components=n_components, var=getattr(args, "var", None),
-        n_permutations=args.n_perm, enrichment_methods=enrichment, seed=args.seed,
+        regions=args.regions,
+        n_components=n_components,
+        var=getattr(args, "var", None),
+        n_permutations=args.n_perm,
+        enrichment_methods=enrichment,
+        seed=args.seed,
     )
     if getattr(args, "geneset", None):
         engine_kw["gene_sets"] = tuple(args.geneset)
@@ -141,23 +157,34 @@ def _cfg_from_args(args) -> PipelineConfig:
         exclude_covariates=tuple(args.exclude_covariate),
     )
     corr = CorrelationConfig(
-        variables=tuple(args.correlate_with), method=args.corr_method,
-        scope=args.corr_scope, within_group=args.corr_within_group,
+        variables=tuple(args.correlate_with),
+        method=args.corr_method,
+        scope=args.corr_scope,
+        within_group=args.corr_within_group,
     )
     io = IOConfig(
         freesurfer_dir=getattr(args, "input", None),
         demographics=getattr(args, "demographics", None),
         dataframe=getattr(args, "dataframe", None),
-        sep=getattr(args, "sep", None), decimal=getattr(args, "decimal", None),
-        sheet=getattr(args, "sheet", 0), id_col=getattr(args, "id_col", None),
+        sep=getattr(args, "sep", None),
+        decimal=getattr(args, "decimal", None),
+        sheet=getattr(args, "sheet", 0),
+        id_col=getattr(args, "id_col", None),
         group_col=args.group_col,
     )
     contrasts = tuple(tuple(c) for c in args.contrast) if getattr(args, "contrast", None) else None
 
     cfg = PipelineConfig(
-        io=io, output=args.output, group_col=args.group_col,
-        case=args.case, control=args.control, contrasts=contrasts,
-        msn=msn, glm=glm, correlation=corr, engine=engine,
+        io=io,
+        output=args.output,
+        group_col=args.group_col,
+        case=args.case,
+        control=args.control,
+        contrasts=contrasts,
+        msn=msn,
+        glm=glm,
+        correlation=corr,
+        engine=engine,
         save_all=getattr(args, "save_all", True),
         save_figures=getattr(args, "save_figures", True),
         verbose=args.verbose,
@@ -180,6 +207,7 @@ def main(argv=None) -> int:
 
     if args.command == "list-atlases":
         import imaging_transcriptomics as imt
+
         print(imt.atlas_table().to_string(index=False))
         return 0
     if args.command == "list-genesets":
@@ -191,13 +219,16 @@ def main(argv=None) -> int:
     from msnpip.pipeline import run_pipeline
 
     cfg = _cfg_from_args(args)
-    start_stage = "CONTRAST" if args.command == "from-strength" else getattr(args, "start_stage", None)
+    start_stage = (
+        "CONTRAST" if args.command == "from-strength" else getattr(args, "start_stage", None)
+    )
     stop_stage = getattr(args, "stop_stage", None)
 
     try:
         if args.command == "from-strength":
             # input mode isn't required when resuming; skip cross-field input check.
             from msnpip.pipeline import Pipeline
+
             Pipeline(cfg).run(start_stage=start_stage, stop_stage=stop_stage)
         else:
             run_pipeline(cfg, start_stage=start_stage, stop_stage=stop_stage)

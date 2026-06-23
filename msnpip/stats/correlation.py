@@ -7,6 +7,7 @@ track a continuous variable such as age?  It is engine-independent and uses no
 spatial null — significance is the ordinary correlation p-value, with
 Benjamini–Hochberg FDR across regions for the regional scope.
 """
+
 from __future__ import annotations
 
 import logging
@@ -27,14 +28,14 @@ class DemographicCorrelationResult:
     """Correlation between node strength and a demographic variable."""
 
     variable: str
-    scope: str                 # "global" | "regional"
-    method: str                # "spearman" | "pearson"
-    r: np.ndarray              # scalar-in-array (global) or (n_regions,)
-    p: np.ndarray              # matching shape
+    scope: str  # "global" | "regional"
+    method: str  # "spearman" | "pearson"
+    r: np.ndarray  # scalar-in-array (global) or (n_regions,)
+    p: np.ndarray  # matching shape
     n: int
-    fdr: np.ndarray | None = None      # regional only (BH across regions)
+    fdr: np.ndarray | None = None  # regional only (BH across regions)
     region_labels: list[str] | None = None
-    group: str | None = None           # group value if within_group used
+    group: str | None = None  # group value if within_group used
     x_values: np.ndarray | None = None  # variable values (global scope) — for scatter plot
     y_values: np.ndarray | None = None  # global_strength values (global scope)
 
@@ -103,8 +104,7 @@ def correlate_strength_with_demographic(
         raise SchemaError(f"Correlation variable {variable!r} not found in DataFrame.")
     if not pd.api.types.is_numeric_dtype(df[variable]):
         raise SchemaError(
-            f"Correlation variable {variable!r} is not numeric "
-            f"(dtype={df[variable].dtype})."
+            f"Correlation variable {variable!r} is not numeric (dtype={df[variable].dtype})."
         )
 
     id_col = schema.id_col
@@ -112,24 +112,18 @@ def correlate_strength_with_demographic(
     try:
         aligned = df_idx.loc[strength_maps.subject_ids]
     except KeyError as exc:
-        raise SchemaError(
-            "Some strength-map subject IDs are absent from the DataFrame."
-        ) from exc
+        raise SchemaError("Some strength-map subject IDs are absent from the DataFrame.") from exc
 
     mask = np.ones(len(aligned), dtype=bool)
     group = None
     if within_group is not None:
         group_col = group_col or getattr(schema, "group_col", None)
         if group_col is None or group_col not in aligned.columns:
-            raise SchemaError(
-                f"within_group requested but group column {group_col!r} not found."
-            )
+            raise SchemaError(f"within_group requested but group column {group_col!r} not found.")
         mask = (aligned[group_col] == within_group).to_numpy()
         group = str(within_group)
         if mask.sum() == 0:
-            raise SchemaError(
-                f"No subjects in group {within_group!r} (column {group_col!r})."
-            )
+            raise SchemaError(f"No subjects in group {within_group!r} (column {group_col!r}).")
 
     var_vals = pd.to_numeric(aligned[variable], errors="coerce").to_numpy()[mask]
 
@@ -174,6 +168,10 @@ def correlate_strength_with_demographic(
 
     logger.info(
         "correlate_strength_with_demographic: var=%s scope=%s method=%s n=%d group=%s",
-        variable, scope, method, result.n, group,
+        variable,
+        scope,
+        method,
+        result.n,
+        group,
     )
     return result

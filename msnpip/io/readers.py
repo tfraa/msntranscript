@@ -2,13 +2,14 @@
 Locale-aware table reader and FreeSurfer subject loader.
 Phase 1, Tasks T1.1–T1.2.
 """
+
 from __future__ import annotations
 
 import csv
 import io
 import logging
+from collections.abc import Sequence
 from pathlib import Path
-from typing import Sequence
 
 import numpy as np
 import pandas as pd
@@ -22,6 +23,7 @@ _DEFAULT_METRICS: tuple[str, ...] = ("SurfArea", "GrayVol", "ThickAvg", "MeanCur
 # ---------------------------------------------------------------------------
 # T1.1 — read_table
 # ---------------------------------------------------------------------------
+
 
 def read_table(
     path: str | Path,
@@ -124,6 +126,7 @@ def _read_excel(path: Path, sheet: str | int | None) -> pd.DataFrame:
 # T1.2 — read_freesurfer_subjects
 # ---------------------------------------------------------------------------
 
+
 def read_freesurfer_subjects(
     root: str | Path,
     expected_regions: Sequence[str] | None = None,
@@ -176,7 +179,7 @@ def read_freesurfer_subjects(
                 subj_issues.append(msg)
                 logger.warning(msg)
                 # Fill all expected with NaN
-                for region in (expected_regions or []):
+                for region in expected_regions or []:
                     for metric in metrics:
                         row[f"{hemi}_{region}_{metric}"] = np.nan
                 continue
@@ -190,7 +193,9 @@ def read_freesurfer_subjects(
                 region_data = {}
 
             # Determine the region name set to use
-            regions_to_use = list(expected_regions) if expected_regions is not None else list(region_data.keys())
+            regions_to_use = (
+                list(expected_regions) if expected_regions is not None else list(region_data.keys())
+            )
 
             for region in regions_to_use:
                 for metric in metrics:

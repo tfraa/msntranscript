@@ -1,21 +1,21 @@
 """Unit tests for msnpip.io.readers — T1.1 and T1.2."""
+
 from __future__ import annotations
 
 import math
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import pytest
 
 from msnpip.errors import AmbiguousFormatError, MsnpipIOError
-from msnpip.io.readers import read_table, read_freesurfer_subjects
+from msnpip.io.readers import read_freesurfer_subjects, read_table
 from tests.fixtures.synthetic import DK_REGIONS, MSN_METRICS
-
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
 
 def _write(tmp_path: Path, name: str, content: str) -> Path:
     p = tmp_path / name
@@ -26,6 +26,7 @@ def _write(tmp_path: Path, name: str, content: str) -> Path:
 # ---------------------------------------------------------------------------
 # T1.1 read_table — delimiter detection
 # ---------------------------------------------------------------------------
+
 
 class TestReadTableDelimiters:
     def test_comma_sep(self, tmp_path):
@@ -74,7 +75,11 @@ class TestReadTableDecimal:
         assert abs(df["value"][0] - 3.14) < 1e-6
 
     def test_explicit_decimal_overrides(self, tmp_path):
-        p = _write(tmp_path, "data.csv", "id;value\n1;3,14\n", )
+        p = _write(
+            tmp_path,
+            "data.csv",
+            "id;value\n1;3,14\n",
+        )
         df = read_table(p, sep=";", decimal=",")
         assert abs(df["value"][0] - 3.14) < 1e-6
 
@@ -92,6 +97,7 @@ class TestReadTableDecimal:
 # ---------------------------------------------------------------------------
 # T1.2 read_freesurfer_subjects
 # ---------------------------------------------------------------------------
+
 
 class TestReadFreeSurferSubjects:
     def test_standard_cohort(self, synthetic_cohort):

@@ -3,6 +3,7 @@
 The transcriptomics engine is monkeypatched (writes a fake bundle) so this runs
 fast in CI; atlas alignment and all msnpip stages run for real.
 """
+
 from __future__ import annotations
 
 import json
@@ -12,13 +13,19 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
-import pytest  # noqa: E402
+import matplotlib.pyplot as plt
+import pytest
 
-import msnpip.pipeline as pipeline_mod  # noqa: E402
-from msnpip.config import CorrelationConfig, EngineConfig, GLMConfig, IOConfig, PipelineConfig  # noqa: E402
-from msnpip.pipeline import run_pipeline  # noqa: E402
-from tests.fixtures.synthetic import make_synthetic_cohort  # noqa: E402
+import msnpip.pipeline as pipeline_mod
+from msnpip.config import (
+    CorrelationConfig,
+    EngineConfig,
+    GLMConfig,
+    IOConfig,
+    PipelineConfig,
+)
+from msnpip.pipeline import run_pipeline
+from tests.fixtures.synthetic import make_synthetic_cohort
 
 
 def _fake_run_transcriptomics(vec, labels_df, eng_cfg, base, tag):
@@ -42,7 +49,10 @@ def full_cfg(tmp_path):
     out = tmp_path / "out"
     cfg = PipelineConfig(
         io=IOConfig(dataframe=Path(info["merged_path"])),
-        output=out, group_col="group", case="FTD", control="HC",
+        output=out,
+        group_col="group",
+        case="FTD",
+        control="HC",
         glm=GLMConfig(predictors=("age", "sex", "tiv"), exclude_covariates=("age",)),
         correlation=CorrelationConfig(variables=("age",), scope="global"),
         engine=EngineConfig(methods=("pls",), n_permutations=10, enrichment_methods=("ensemble",)),

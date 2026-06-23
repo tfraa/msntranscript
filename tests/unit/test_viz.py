@@ -1,29 +1,30 @@
 """Unit tests for msnpip.viz — T4.1, T4.2, T4.3 (delegation), T4.4."""
+
 from __future__ import annotations
 
 import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.pyplot as plt  # noqa: E402
-import pandas as pd  # noqa: E402
-import pytest  # noqa: E402
+import matplotlib.pyplot as plt
+import pandas as pd
+import pytest
 
-from msnpip.io.schema import detect_schema  # noqa: E402
-from msnpip.msn.construct import compute_strength_maps  # noqa: E402
-from msnpip.stats.correlation import correlate_strength_with_demographic  # noqa: E402
-import msnpip.viz.surface_extra as surface_extra  # noqa: E402
-from msnpip.viz.distributions import plot_strength_violin  # noqa: E402
-from msnpip.viz.scatter import plot_demographic_correlation  # noqa: E402
-from msnpip.viz.surface_extra import plot_surface_with_dorsal  # noqa: E402
-from msnpip.viz.theme import (  # noqa: E402
+import msnpip.viz.surface_extra as surface_extra
+from msnpip.io.schema import detect_schema
+from msnpip.msn.construct import compute_strength_maps
+from msnpip.stats.correlation import correlate_strength_with_demographic
+from msnpip.viz.distributions import plot_strength_violin
+from msnpip.viz.scatter import plot_demographic_correlation
+from msnpip.viz.surface_extra import plot_surface_with_dorsal
+from msnpip.viz.theme import (
     CASE_COLOR,
     CONTROL_COLOR,
     format_p,
     group_colors,
     significance_stars,
 )
-from tests.fixtures.synthetic import DK_REGIONS, make_synthetic_cohort  # noqa: E402
+from tests.fixtures.synthetic import DK_REGIONS, make_synthetic_cohort
 
 
 @pytest.fixture
@@ -38,6 +39,7 @@ def cohort(tmp_path):
 # ---------------------------------------------------------------------------
 # theme
 # ---------------------------------------------------------------------------
+
 
 class TestTheme:
     def test_significance_stars(self):
@@ -60,6 +62,7 @@ class TestTheme:
 # ---------------------------------------------------------------------------
 # distributions
 # ---------------------------------------------------------------------------
+
 
 class TestViolin:
     def test_global_returns_figure_with_bracket(self, cohort):
@@ -93,6 +96,7 @@ class TestViolin:
 # scatter
 # ---------------------------------------------------------------------------
 
+
 class TestScatter:
     def test_global_correlation_figure(self, cohort):
         df, schema, sm, _ = cohort
@@ -116,6 +120,7 @@ class TestScatter:
 # surface_extra (delegation path — no real assets needed)
 # ---------------------------------------------------------------------------
 
+
 class TestSurfaceExtra:
     def test_lateral_medial_delegates_to_engine(self, monkeypatch, tmp_path):
         calls = {}
@@ -127,8 +132,11 @@ class TestSurfaceExtra:
         monkeypatch.setattr(surface_extra.plotting, "plot_cortical_surface_map", fake_plot)
         out = plot_surface_with_dorsal(
             pd.DataFrame({"label": ["bankssts"], "hemisphere": ["L"], "beta": [0.1]}),
-            atlas_id="dk", value_column="beta", title="t",
-            output_path=tmp_path / "out.png", views=("lateral", "medial"),
+            atlas_id="dk",
+            value_column="beta",
+            title="t",
+            output_path=tmp_path / "out.png",
+            views=("lateral", "medial"),
         )
         assert calls.get("delegated") is True
         assert out == tmp_path / "fake.png"
@@ -137,6 +145,9 @@ class TestSurfaceExtra:
         with pytest.raises(ValueError, match="Unknown view"):
             plot_surface_with_dorsal(
                 pd.DataFrame({"label": ["x"], "hemisphere": ["L"], "beta": [0.1]}),
-                atlas_id="dk", value_column="beta", title="t",
-                output_path=tmp_path / "o.png", views=("sagittal",),
+                atlas_id="dk",
+                value_column="beta",
+                title="t",
+                output_path=tmp_path / "o.png",
+                views=("sagittal",),
             )

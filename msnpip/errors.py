@@ -4,6 +4,7 @@ MsnpipError hierarchy.
 Every exception raised by msnpip inherits from MsnpipError so callers can
 catch the whole family with a single except clause.
 """
+
 from __future__ import annotations
 
 
@@ -12,6 +13,7 @@ class MsnpipError(Exception):
 
 
 # --- I/O ---------------------------------------------------------------
+
 
 class MsnpipIOError(MsnpipError):
     """File I/O or format problems."""
@@ -22,6 +24,7 @@ class AmbiguousFormatError(MsnpipIOError):
 
 
 # --- Schema / validation -----------------------------------------------
+
 
 class SchemaError(MsnpipError):
     """Input data fails the schema validation gate (dtype, uniqueness, …)."""
@@ -44,6 +47,7 @@ class IDMatchError(MsnpipError):
 
 # --- Atlas alignment ---------------------------------------------------
 
+
 class AtlasAlignmentError(MsnpipError):
     """MSN region labels cannot be matched to the engine atlas label order.
 
@@ -55,11 +59,13 @@ class AtlasAlignmentError(MsnpipError):
 
 # --- MSN construction --------------------------------------------------
 
+
 class MSNInputError(MsnpipError):
     """Bad input to MSN construction (e.g. an all-NaN region column)."""
 
 
 # --- Engine wrapper ----------------------------------------------------
+
 
 class MsnpipEngineError(MsnpipError):
     """Wraps an imaging_transcriptomics exception with pipeline context."""
@@ -80,6 +86,7 @@ class MsnpipSurfaceNullError(MsnpipEngineError):
 
 
 # --- Configuration / pipeline ------------------------------------------
+
 
 class ConfigurationError(MsnpipError):
     """``PipelineConfig.validate()`` found a cross-field inconsistency."""

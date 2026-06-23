@@ -1,4 +1,5 @@
 """Unit tests for msnpip.msn.construct — T2.1, T2.2."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -17,10 +18,10 @@ from msnpip.msn.construct import (
 )
 from tests.fixtures.synthetic import DK_REGIONS, make_synthetic_cohort
 
-
 # ---------------------------------------------------------------------------
 # build_msn
 # ---------------------------------------------------------------------------
+
 
 class TestBuildMSN:
     def test_shape_and_diagonal(self):
@@ -56,7 +57,7 @@ class TestBuildMSN:
         feats = np.array(
             [
                 [1.0, 2.0, 3.0, 4.0, 5.0],
-                [1.0, 2.0, 3.0, 4.0, 5.0],   # identical to region 0
+                [1.0, 2.0, 3.0, 4.0, 5.0],  # identical to region 0
                 [5.0, 1.0, 4.0, 2.0, 3.0],
             ]
         )
@@ -85,6 +86,7 @@ class TestBuildMSN:
 # ---------------------------------------------------------------------------
 # node_strength
 # ---------------------------------------------------------------------------
+
 
 class TestNodeStrength:
     @pytest.fixture
@@ -130,6 +132,7 @@ class TestNodeStrength:
 # ---------------------------------------------------------------------------
 # compute_strength_maps
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def cohort(tmp_path):

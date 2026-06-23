@@ -1,4 +1,5 @@
 """Fast pipeline unit tests (no transcriptomics engine call) — T5.2."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -17,7 +18,10 @@ def df_cfg(tmp_path):
     out = tmp_path / "out"
     cfg = PipelineConfig(
         io=IOConfig(dataframe=Path(info["merged_path"])),
-        output=out, group_col="group", case="FTD", control="HC",
+        output=out,
+        group_col="group",
+        case="FTD",
+        control="HC",
         glm=GLMConfig(predictors=("age", "sex")),
         engine=EngineConfig(methods=("pls",), n_permutations=10),
     )

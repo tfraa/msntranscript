@@ -9,15 +9,15 @@ is narrow: validate the already-aligned input, dispatch one engine call per
 method with all gene sets, wrap engine exceptions with context, and — critically
 — refuse to let a silent grouped-shuffle null reach a figure.
 """
+
 from __future__ import annotations
 
 import logging
 from pathlib import Path
 
+import imaging_transcriptomics as imt
 import numpy as np
 import pandas as pd
-
-import imaging_transcriptomics as imt
 
 from msnpip.config import EngineConfig
 from msnpip.errors import MsnpipEngineError, MsnpipError, MsnpipSurfaceNullError
@@ -154,7 +154,12 @@ def run_transcriptomics(
         out_dir.mkdir(parents=True, exist_ok=True)
         logger.info(
             "run_transcriptomics: %s [%s] → %s (n=%d, null=%s, perms=%d)",
-            contrast_tag, method, out_dir, len(data), cfg.null_method, cfg.n_permutations,
+            contrast_tag,
+            method,
+            out_dir,
+            len(data),
+            cfg.null_method,
+            cfg.n_permutations,
         )
         try:
             result = _call_engine(method, data, input_rh, cfg, out_dir)

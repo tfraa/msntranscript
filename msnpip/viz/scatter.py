@@ -2,6 +2,7 @@
 plot_demographic_correlation — scatter with fit line, r, p, n annotation.
 Phase 4, Task T4.4.
 """
+
 from __future__ import annotations
 
 import logging
@@ -105,12 +106,24 @@ def plot_demographic_correlation(
         if getattr(corr_result, "group", None):
             lines.append(f"within-group: {corr_result.group}")
         ax.text(
-            0.97, 0.97, "\n".join(lines), transform=ax.transAxes,
-            ha="right", va="top", fontsize=10,
-            bbox=dict(boxstyle="round,pad=0.4", facecolor="white", edgecolor="#cccccc", linewidth=0.8),
+            0.97,
+            0.97,
+            "\n".join(lines),
+            transform=ax.transAxes,
+            ha="right",
+            va="top",
+            fontsize=10,
+            bbox=dict(
+                boxstyle="round,pad=0.4", facecolor="white", edgecolor="#cccccc", linewidth=0.8
+            ),
         )
-        logger.info("plot_demographic_correlation: %s r=%.3f p=%.3f n=%d",
-                    getattr(corr_result, "variable", "?"), r, p, corr_result.n)
+        logger.info(
+            "plot_demographic_correlation: %s r=%.3f p=%.3f n=%d",
+            getattr(corr_result, "variable", "?"),
+            r,
+            p,
+            corr_result.n,
+        )
 
     fig.tight_layout()
     return fig

@@ -6,6 +6,7 @@ Group colours use the Okabe–Ito colourblind-safe palette: case = orange,
 control = blue.  These set the look of every figure msnpip draws itself (the
 engine draws its own transcriptomics plots with its own style).
 """
+
 from __future__ import annotations
 
 import matplotlib as mpl
@@ -52,7 +53,7 @@ def group_colors(labels) -> dict:
 
 def significance_stars(p: float) -> str:
     """APA-style significance stars; 'ns' when not significant or undefined."""
-    if p is None or not (p == p):  # NaN
+    if p is None or p != p:  # NaN
         return "ns"
     if p < 0.001:
         return "***"
@@ -65,7 +66,7 @@ def significance_stars(p: float) -> str:
 
 def format_p(p: float) -> str:
     """Compact p-value label, e.g. 'p = 0.013' or 'p < 0.001'."""
-    if p is None or not (p == p):
+    if p is None or p != p:
         return "p = n/a"
     if p < 0.001:
         return "p < 0.001"

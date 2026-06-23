@@ -2,6 +2,7 @@
 plot_strength_violin — violin + box + jitter of node strength per group.
 Phase 4, Task T4.2.
 """
+
 from __future__ import annotations
 
 import logging
@@ -122,7 +123,11 @@ def plot_strength_violin(
         body.set_linewidth(1.2)
 
     bp = ax.boxplot(
-        data, positions=positions, widths=0.12, showfliers=False, patch_artist=True,
+        data,
+        positions=positions,
+        widths=0.12,
+        showfliers=False,
+        patch_artist=True,
         medianprops=dict(color="#222222", linewidth=1.4),
     )
     for patch in bp["boxes"]:
@@ -133,8 +138,9 @@ def plot_strength_violin(
     rng = np.random.default_rng(0)
     for i, (v, g) in enumerate(zip(data, order)):
         jitter = rng.uniform(-0.07, 0.07, size=v.size)
-        ax.scatter(positions[i] + jitter, v, s=16, color=colors[g],
-                   alpha=0.8, edgecolors="none", zorder=3)
+        ax.scatter(
+            positions[i] + jitter, v, s=16, color=colors[g], alpha=0.8, edgecolors="none", zorder=3
+        )
 
     ax.set_xticks(positions)
     ax.set_xticklabels([f"{g}\n(n={len(v)})" for g, v in zip(order, data)])

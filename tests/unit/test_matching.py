@@ -1,16 +1,17 @@
 """Unit tests for msnpip.io.matching — T1.5."""
+
 from __future__ import annotations
 
 import pandas as pd
 import pytest
 
 from msnpip.errors import IDMatchError
-from msnpip.io.matching import normalize_ids, merge_features_demographics
-
+from msnpip.io.matching import merge_features_demographics, normalize_ids
 
 # ---------------------------------------------------------------------------
 # normalize_ids — strips whitespace only, nothing else
 # ---------------------------------------------------------------------------
+
 
 class TestNormalizeIds:
     def test_strips_trailing_whitespace(self):
@@ -43,6 +44,7 @@ class TestNormalizeIds:
 # merge_features_demographics
 # ---------------------------------------------------------------------------
 
+
 def _feat(ids):
     return pd.DataFrame({"subject_id": ids, "lh_bankssts_SurfArea": range(len(ids))})
 
@@ -56,8 +58,10 @@ class TestMergeFeaturesDemographics:
     def test_exact_match(self):
         ids = ["sub-001", "sub-002", "sub-003"]
         merged = merge_features_demographics(
-            _feat(ids), _dem(ids),
-            feat_id_col="subject_id", dem_id_col="subject_id",
+            _feat(ids),
+            _dem(ids),
+            feat_id_col="subject_id",
+            dem_id_col="subject_id",
         )
         assert len(merged) == 3
         assert "group" in merged.columns
@@ -67,18 +71,22 @@ class TestMergeFeaturesDemographics:
         """IDs in the merged output must match the features source exactly."""
         ids = ["sub-001", "sub-002"]
         merged = merge_features_demographics(
-            _feat(ids), _dem(ids),
-            feat_id_col="subject_id", dem_id_col="subject_id",
+            _feat(ids),
+            _dem(ids),
+            feat_id_col="subject_id",
+            dem_id_col="subject_id",
         )
         assert merged["subject_id"].tolist() == ids
 
     def test_whitespace_trimmed_for_matching(self):
         """Trailing space in the demographics file should still match."""
         feat_ids = ["sub-001", "sub-002"]
-        dem_ids = ["sub-001 ", "sub-002"]   # trailing space — stripped before join
+        dem_ids = ["sub-001 ", "sub-002"]  # trailing space — stripped before join
         merged = merge_features_demographics(
-            _feat(feat_ids), _dem(dem_ids),
-            feat_id_col="subject_id", dem_id_col="subject_id",
+            _feat(feat_ids),
+            _dem(dem_ids),
+            feat_id_col="subject_id",
+            dem_id_col="subject_id",
         )
         assert len(merged) == 2
 
@@ -88,8 +96,10 @@ class TestMergeFeaturesDemographics:
         dem_ids = ["sub-1", "sub-2"]
         with pytest.raises(IDMatchError):
             merge_features_demographics(
-                _feat(feat_ids), _dem(dem_ids),
-                feat_id_col="subject_id", dem_id_col="subject_id",
+                _feat(feat_ids),
+                _dem(dem_ids),
+                feat_id_col="subject_id",
+                dem_id_col="subject_id",
                 min_match_rate=0.5,
             )
 
@@ -98,8 +108,10 @@ class TestMergeFeaturesDemographics:
         dem_ids = ["sub-001"]  # only 1 of 4 matches
         with pytest.raises(IDMatchError):
             merge_features_demographics(
-                _feat(feat_ids), _dem(dem_ids),
-                feat_id_col="subject_id", dem_id_col="subject_id",
+                _feat(feat_ids),
+                _dem(dem_ids),
+                feat_id_col="subject_id",
+                dem_id_col="subject_id",
                 min_match_rate=0.95,
             )
 
@@ -108,8 +120,10 @@ class TestMergeFeaturesDemographics:
         dem_ids = ["sub-001"]
         with pytest.raises(IDMatchError) as exc_info:
             merge_features_demographics(
-                _feat(feat_ids), _dem(dem_ids),
-                feat_id_col="subject_id", dem_id_col="subject_id",
+                _feat(feat_ids),
+                _dem(dem_ids),
+                feat_id_col="subject_id",
+                dem_id_col="subject_id",
                 min_match_rate=0.5,
             )
         assert exc_info.value.unmatched
@@ -117,8 +131,10 @@ class TestMergeFeaturesDemographics:
     def test_perfect_match_passes_at_threshold(self):
         ids = ["sub-001"]
         merged = merge_features_demographics(
-            _feat(ids), _dem(ids),
-            feat_id_col="subject_id", dem_id_col="subject_id",
+            _feat(ids),
+            _dem(ids),
+            feat_id_col="subject_id",
+            dem_id_col="subject_id",
             min_match_rate=1.0,
         )
         assert len(merged) == 1

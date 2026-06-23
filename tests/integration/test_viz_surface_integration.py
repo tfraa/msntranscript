@@ -3,17 +3,18 @@
 Deselect with ``-m 'not slow'``.  Skips if the engine's surface assets are
 unavailable rather than failing.
 """
+
 from __future__ import annotations
 
 import matplotlib
 
 matplotlib.use("Agg")
 
-import numpy as np  # noqa: E402
-import pytest  # noqa: E402
+import numpy as np
+import pytest
 
-from msnpip.atlas_align import engine_region_order, to_region_table  # noqa: E402
-from msnpip.viz.surface_extra import plot_surface_with_dorsal  # noqa: E402
+from msnpip.atlas_align import engine_region_order, to_region_table
+from msnpip.viz.surface_extra import plot_surface_with_dorsal
 
 pytestmark = pytest.mark.slow
 
@@ -26,8 +27,11 @@ def test_dorsal_view_writes_png(tmp_path):
     out = tmp_path / "surface.png"
     try:
         result = plot_surface_with_dorsal(
-            table, atlas_id="dk", value_column="beta",
-            title="synthetic contrast", output_path=out,
+            table,
+            atlas_id="dk",
+            value_column="beta",
+            title="synthetic contrast",
+            output_path=out,
             views=("lateral", "medial", "dorsal"),
         )
     except Exception as exc:  # missing surface assets, etc.

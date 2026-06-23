@@ -10,6 +10,7 @@ Pearson correlation between the two regions' standardized feature vectors.
 Node strength summarizes each region's connectivity profile (signed mean by
 default).
 """
+
 from __future__ import annotations
 
 import logging
@@ -37,14 +38,13 @@ _HEMI_FOR: dict[str, tuple[str, ...]] = {
 # T2.1 — build_msn
 # ---------------------------------------------------------------------------
 
+
 def _build_one(features: np.ndarray) -> np.ndarray:
     """Build one subject's region×region MSN from a (n_regions, n_metrics) matrix.
 
     Steps: z-score each metric across regions, then Pearson-correlate regions
     across the standardized metric axis.  The diagonal is set to NaN.
     """
-    n_regions = features.shape[0]
-
     all_nan = np.all(np.isnan(features), axis=1)
     if all_nan.any():
         bad = np.flatnonzero(all_nan).tolist()
@@ -99,9 +99,7 @@ def build_msn(subject_features: np.ndarray) -> np.ndarray:
     if single:
         arr = arr[None]
     if arr.ndim != 3:
-        raise MSNInputError(
-            f"subject_features must be 2-D or 3-D, got shape {arr.shape}."
-        )
+        raise MSNInputError(f"subject_features must be 2-D or 3-D, got shape {arr.shape}.")
 
     n_subjects, n_regions, _ = arr.shape
     out = np.empty((n_subjects, n_regions, n_regions), dtype=float)
@@ -114,6 +112,7 @@ def build_msn(subject_features: np.ndarray) -> np.ndarray:
 # ---------------------------------------------------------------------------
 # T2.1 — node_strength
 # ---------------------------------------------------------------------------
+
 
 def node_strength(msn: np.ndarray, *, sign: str = "signed") -> np.ndarray:
     """Compute per-region node strength from MSN matrices.
@@ -166,6 +165,7 @@ def node_strength(msn: np.ndarray, *, sign: str = "signed") -> np.ndarray:
 # T2.2 — StrengthMaps + compute_strength_maps
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class StrengthMaps:
     """Container for per-subject MSN matrices and node-strength maps.
@@ -175,13 +175,13 @@ class StrengthMaps:
     :func:`msnpip.atlas_align.align_strength_to_atlas` directly.
     """
 
-    matrix: np.ndarray              # (n_subjects, n_regions, n_regions)
-    strength: np.ndarray           # (n_subjects, n_regions)
+    matrix: np.ndarray  # (n_subjects, n_regions, n_regions)
+    strength: np.ndarray  # (n_subjects, n_regions)
     subject_ids: list[str]
-    region_labels: list[str]       # ["lh_bankssts", ...]
+    region_labels: list[str]  # ["lh_bankssts", ...]
     atlas: str
-    features: list[str]            # metric names, in column order
-    global_strength: np.ndarray    # (n_subjects,) — mean over regions
+    features: list[str]  # metric names, in column order
+    global_strength: np.ndarray  # (n_subjects,) — mean over regions
     hemisphere: str = "both"
     regions: str = "cort"
     sign: str = "signed"
@@ -266,9 +266,7 @@ def compute_strength_maps(
         subjects survive the drop step.
     """
     if hemisphere not in _HEMI_FOR:
-        raise MSNInputError(
-            f"hemisphere must be one of {sorted(_HEMI_FOR)}, got {hemisphere!r}"
-        )
+        raise MSNInputError(f"hemisphere must be one of {sorted(_HEMI_FOR)}, got {hemisphere!r}")
     wanted_hemis = _HEMI_FOR[hemisphere]
     metric_index = {m: i for i, m in enumerate(metrics)}
 
@@ -324,7 +322,9 @@ def compute_strength_maps(
         logger.warning(
             "compute_strength_maps: dropping %d/%d subject(s) over drop_threshold=%.3f "
             "missing-feature fraction: %s",
-            len(dropped_subjects), n_total, drop_threshold,
+            len(dropped_subjects),
+            n_total,
+            drop_threshold,
             dropped_subjects[:10] + (["…"] if len(dropped_subjects) > 10 else []),
         )
 
@@ -344,7 +344,11 @@ def compute_strength_maps(
 
     logger.info(
         "compute_strength_maps: atlas=%s hemi=%s regions=%s → %d subjects × %d regions",
-        atlas, hemisphere, regions, len(subject_ids), n_regions,
+        atlas,
+        hemisphere,
+        regions,
+        len(subject_ids),
+        n_regions,
     )
 
     return StrengthMaps(

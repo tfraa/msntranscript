@@ -1,4 +1,5 @@
 """Unit tests for msnpip.config — T5.1."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -10,8 +11,13 @@ from msnpip.errors import ConfigurationError
 
 
 def _cfg(**over) -> PipelineConfig:
-    base = dict(io=IOConfig(dataframe=Path("merged.csv")), output=Path("out"),
-                group_col="group", case="FTD", control="HC")
+    base = dict(
+        io=IOConfig(dataframe=Path("merged.csv")),
+        output=Path("out"),
+        group_col="group",
+        case="FTD",
+        control="HC",
+    )
     base.update(over)
     return PipelineConfig(**base)
 
@@ -25,14 +31,17 @@ class TestValidate:
             _cfg(io=IOConfig()).validate()
 
     def test_both_inputs_raises(self):
-        cfg = _cfg(io=IOConfig(dataframe=Path("a.csv"), freesurfer_dir=Path("d"),
-                               demographics=Path("dem.csv")))
+        cfg = _cfg(
+            io=IOConfig(
+                dataframe=Path("a.csv"), freesurfer_dir=Path("d"), demographics=Path("dem.csv")
+            )
+        )
         with pytest.raises(ConfigurationError, match="only one input"):
             cfg.validate()
 
     def test_pls_needs_exactly_one_of_ncomp_var(self):
         cfg = _cfg(engine=EngineConfig(n_components=1, var=0.5))
-        with pytest.raises(ConfigurationError, match="n_components or engine.var"):
+        with pytest.raises(ConfigurationError, match="exactly one of"):
             cfg.validate()
 
     def test_unknown_atlas_raises(self):

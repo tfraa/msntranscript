@@ -1,4 +1,5 @@
 """Unit tests for msnpip.stats.glm — T2.3, T2.4. Validated vs statsmodels."""
+
 from __future__ import annotations
 
 import numpy as np
@@ -18,10 +19,10 @@ from msnpip.stats.glm import (
 )
 from tests.fixtures.synthetic import DK_REGIONS, make_synthetic_cohort
 
-
 # ---------------------------------------------------------------------------
 # build_design_matrix
 # ---------------------------------------------------------------------------
+
 
 class TestBuildDesignMatrix:
     def test_numeric_passthrough_with_intercept(self):
@@ -48,6 +49,7 @@ class TestBuildDesignMatrix:
 # ---------------------------------------------------------------------------
 # fit_ols — vs statsmodels closed form
 # ---------------------------------------------------------------------------
+
 
 class TestFitOLS:
     def test_matches_statsmodels(self):
@@ -83,6 +85,7 @@ class TestFitOLS:
 # residualize
 # ---------------------------------------------------------------------------
 
+
 class TestResidualize:
     def test_residuals_orthogonal_to_covariates(self):
         rng = np.random.default_rng(13)
@@ -107,6 +110,7 @@ class TestResidualize:
 # regional_group_contrast — vs statsmodels
 # ---------------------------------------------------------------------------
 
+
 @pytest.fixture
 def cohort(tmp_path):
     info = make_synthetic_cohort(tmp_path, n_case=10, n_control=10, seed=21)
@@ -121,9 +125,13 @@ class TestRegionalGroupContrast:
         df, schema, sm_maps, info = cohort
         cov = ["age", "tiv", "sex"]
         res = regional_group_contrast(
-            sm_maps, df, schema,
-            case_label=info["case_label"], control_label=info["control_label"],
-            covariates=cov, stat="beta",
+            sm_maps,
+            df,
+            schema,
+            case_label=info["case_label"],
+            control_label=info["control_label"],
+            covariates=cov,
+            stat="beta",
         )
         assert isinstance(res, GroupContrastResult)
         assert res.stat_type == "beta"
@@ -133,7 +141,9 @@ class TestRegionalGroupContrast:
         # Independently fit region 0 with the same design.
         aligned = df.set_index(df["subject_id"].astype(str)).loc[sm_maps.subject_ids]
         design_input = aligned[cov].copy()
-        design_input.insert(0, "group", (aligned["group"] == info["case_label"]).astype(float).to_numpy())
+        design_input.insert(
+            0, "group", (aligned["group"] == info["case_label"]).astype(float).to_numpy()
+        )
         design = build_design_matrix(design_input, list(design_input.columns))
         gi = design.columns.get_loc("group")
         model = sm.OLS(sm_maps.strength[:, 0], design.to_numpy()).fit()
@@ -142,14 +152,20 @@ class TestRegionalGroupContrast:
     def test_t_stat(self, cohort):
         df, schema, sm_maps, info = cohort
         res = regional_group_contrast(
-            sm_maps, df, schema,
-            case_label=info["case_label"], control_label=info["control_label"],
-            covariates=["age"], stat="t",
+            sm_maps,
+            df,
+            schema,
+            case_label=info["case_label"],
+            control_label=info["control_label"],
+            covariates=["age"],
+            stat="t",
         )
         assert res.stat_type == "t"
         aligned = df.set_index(df["subject_id"].astype(str)).loc[sm_maps.subject_ids]
         design_input = aligned[["age"]].copy()
-        design_input.insert(0, "group", (aligned["group"] == info["case_label"]).astype(float).to_numpy())
+        design_input.insert(
+            0, "group", (aligned["group"] == info["case_label"]).astype(float).to_numpy()
+        )
         design = build_design_matrix(design_input, list(design_input.columns))
         gi = design.columns.get_loc("group")
         model = sm.OLS(sm_maps.strength[:, 5], design.to_numpy()).fit()
@@ -158,15 +174,20 @@ class TestRegionalGroupContrast:
     def test_cohen_d_no_covariates(self, cohort):
         df, schema, sm_maps, info = cohort
         res = regional_group_contrast(
-            sm_maps, df, schema,
-            case_label=info["case_label"], control_label=info["control_label"],
+            sm_maps,
+            df,
+            schema,
+            case_label=info["case_label"],
+            control_label=info["control_label"],
             stat="cohen_d",
         )
         aligned = df.set_index(df["subject_id"].astype(str)).loc[sm_maps.subject_ids]
         is_case = (aligned["group"] == info["case_label"]).to_numpy()
         y = sm_maps.strength[:, 0]
         c, k = y[is_case], y[~is_case]
-        pooled = np.sqrt(((len(c) - 1) * c.var(ddof=1) + (len(k) - 1) * k.var(ddof=1)) / (len(c) + len(k) - 2))
+        pooled = np.sqrt(
+            ((len(c) - 1) * c.var(ddof=1) + (len(k) - 1) * k.var(ddof=1)) / (len(c) + len(k) - 2)
+        )
         expected = (c.mean() - k.mean()) / pooled
         assert res.regional_stat[0] == pytest.approx(expected, rel=1e-12)
 
@@ -174,15 +195,22 @@ class TestRegionalGroupContrast:
         df, schema, sm_maps, info = cohort
         with pytest.raises(SchemaError):
             regional_group_contrast(
-                sm_maps, df, schema, group_col="nope",
-                case_label="a", control_label="b",
+                sm_maps,
+                df,
+                schema,
+                group_col="nope",
+                case_label="a",
+                control_label="b",
             )
 
     def test_invalid_stat_raises(self, cohort):
         df, schema, sm_maps, info = cohort
         with pytest.raises(ValueError, match="stat"):
             regional_group_contrast(
-                sm_maps, df, schema,
-                case_label=info["case_label"], control_label=info["control_label"],
+                sm_maps,
+                df,
+                schema,
+                case_label=info["case_label"],
+                control_label=info["control_label"],
                 stat="bogus",
             )

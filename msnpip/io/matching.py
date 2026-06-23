@@ -2,6 +2,7 @@
 ID matching and subject-level merge with match-rate threshold.
 Phase 1, Task T1.5.
 """
+
 from __future__ import annotations
 
 import logging
@@ -16,6 +17,7 @@ logger = logging.getLogger("msnpip.io.matching")
 # ---------------------------------------------------------------------------
 # T1.5 — normalize_ids
 # ---------------------------------------------------------------------------
+
 
 def normalize_ids(ids: pd.Series) -> pd.Series:
     """Strip invisible leading/trailing whitespace from subject IDs.
@@ -40,6 +42,7 @@ def normalize_ids(ids: pd.Series) -> pd.Series:
 # ---------------------------------------------------------------------------
 # T1.5 — merge_features_demographics
 # ---------------------------------------------------------------------------
+
 
 def merge_features_demographics(
     features: pd.DataFrame,
@@ -109,18 +112,18 @@ def merge_features_demographics(
     n_matched = len(merged)
     match_rate = n_matched / n_feat if n_feat > 0 else 0.0
 
-    unmatched_feat = sorted(
-        set(feat_norm.tolist()) - set(dem_norm.tolist())
-    )
-    unmatched_dem = sorted(
-        set(dem_norm.tolist()) - set(feat_norm.tolist())
-    )
+    unmatched_feat = sorted(set(feat_norm.tolist()) - set(dem_norm.tolist()))
+    unmatched_dem = sorted(set(dem_norm.tolist()) - set(feat_norm.tolist()))
 
     logger.info(
         "merge: %d features × %d demographics → %d matched (%.1f%%). "
         "Unmatched in features: %d; in demographics: %d.",
-        n_feat, len(demographics), n_matched, match_rate * 100,
-        len(unmatched_feat), len(unmatched_dem),
+        n_feat,
+        len(demographics),
+        n_matched,
+        match_rate * 100,
+        len(unmatched_feat),
+        len(unmatched_dem),
     )
 
     if unmatched_feat:

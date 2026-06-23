@@ -7,8 +7,10 @@ It is a linear stage machine: each stage reads from an in-memory context and
 writes its artifacts to disk, so a run can be resumed from a later stage given
 the persisted outputs (``start_stage`` / ``stop_stage``).
 """
+
 from __future__ import annotations
 
+import contextlib
 import logging
 from dataclasses import replace
 from pathlib import Path
@@ -34,8 +36,15 @@ from msnpip.stats.sensitivity import covariate_exclusion_contrast
 logger = logging.getLogger("msnpip.pipeline")
 
 STAGES = [
-    "LOAD", "VALIDATE", "MSN", "CONTRAST", "CORRELATION",
-    "SENSITIVITY", "TRANSCRIPTOMICS", "FIGURES", "REPORT",
+    "LOAD",
+    "VALIDATE",
+    "MSN",
+    "CONTRAST",
+    "CORRELATION",
+    "SENSITIVITY",
+    "TRANSCRIPTOMICS",
+    "FIGURES",
+    "REPORT",
 ]
 
 
@@ -83,16 +92,23 @@ class Pipeline:
             df = read_table(io.dataframe, sep=io.sep, decimal=io.decimal, sheet=io.sheet)
             report = {"mode": "dataframe", "source": str(io.dataframe), "n_subjects": len(df)}
         else:
-            feats = read_freesurfer_subjects(io.freesurfer_dir, expected_regions=self._atlas_regions())
+            feats = read_freesurfer_subjects(
+                io.freesurfer_dir, expected_regions=self._atlas_regions()
+            )
             dem = read_table(io.demographics, sep=io.sep, decimal=io.decimal, sheet=io.sheet)
             dem_id = io.id_col or "subject_id"
             df = merge_features_demographics(
-                feats, dem, feat_id_col="subject_id", dem_id_col=dem_id,
+                feats,
+                dem,
+                feat_id_col="subject_id",
+                dem_id_col=dem_id,
                 min_match_rate=io.min_id_match_rate,
             )
             report = {
-                "mode": "freesurfer", "n_features": len(feats),
-                "n_demographics": len(dem), "n_merged": len(df),
+                "mode": "freesurfer",
+                "n_features": len(feats),
+                "n_demographics": len(dem),
+                "n_merged": len(df),
             }
         self.ctx["df"] = df
         inputs = self.out.subdir("00_inputs")
@@ -107,8 +123,12 @@ class Pipeline:
         if gcol and schema.group_col is None:
             schema = replace(schema, group_col=gcol)
         predictors = tuple(self.cfg.glm.predictors)
-        validate_schema(df, schema, predictor_cols=predictors,
-                        correlation_cols=tuple(self.cfg.correlation.variables))
+        validate_schema(
+            df,
+            schema,
+            predictor_cols=predictors,
+            correlation_cols=tuple(self.cfg.correlation.variables),
+        )
         self.ctx["schema"] = schema
         inputs = self.out.subdir("00_inputs")
         inputs.write_json(_schema_to_dict(schema), "schema")
@@ -118,8 +138,12 @@ class Pipeline:
     def _stage_msn(self) -> None:
         df, schema = self.ctx["df"], self.ctx["schema"]
         sm = compute_strength_maps(
-            df, schema, atlas=self.cfg.engine.atlas, hemisphere="both",
-            regions=self.cfg.engine.regions, sign=self.cfg.msn.strength_sign,
+            df,
+            schema,
+            atlas=self.cfg.engine.atlas,
+            hemisphere="both",
+            regions=self.cfg.engine.regions,
+            sign=self.cfg.msn.strength_sign,
             metrics=tuple(self.cfg.msn.features),
         )
         self.ctx["strength_maps"] = sm
@@ -146,8 +170,13 @@ class Pipeline:
         for case, control in pairs:
             work_df, cc, kk = self._resolve_contrast_df(df, schema, case, control)
             res = regional_group_contrast(
-                sm, work_df, schema, case_label=cc, control_label=kk,
-                covariates=covariates, stat=self.cfg.glm.contrast_stat,
+                sm,
+                work_df,
+                schema,
+                case_label=cc,
+                control_label=kk,
+                covariates=covariates,
+                stat=self.cfg.glm.contrast_stat,
             )
             tag = _tag(case, control)
             tbl = pd.DataFrame({"region": res.region_labels, res.stat_type: res.regional_stat})
@@ -165,8 +194,13 @@ class Pipeline:
         results = []
         for var in variables:
             res = correlate_strength_with_demographic(
-                sm, df, schema, variable=var, scope=self.cfg.correlation.scope,
-                within_group=self.cfg.correlation.within_group, method=self.cfg.correlation.method,
+                sm,
+                df,
+                schema,
+                variable=var,
+                scope=self.cfg.correlation.scope,
+                within_group=self.cfg.correlation.within_group,
+                method=self.cfg.correlation.method,
             )
             cols = {"r": np.atleast_1d(res.r), "p": np.atleast_1d(res.p)}
             if res.fdr is not None:
@@ -190,15 +224,22 @@ class Pipeline:
             work_df, _, _ = self._resolve_contrast_df(df, schema, cc, kk)
             for drop in drops:
                 sens = covariate_exclusion_contrast(
-                    sm, work_df, schema, case_label=cc, control_label=kk,
-                    full_covariates=self.cfg.glm.predictors, drop=drop,
+                    sm,
+                    work_df,
+                    schema,
+                    case_label=cc,
+                    control_label=kk,
+                    full_covariates=self.cfg.glm.predictors,
+                    drop=drop,
                     stat=self.cfg.glm.contrast_stat,
                 )
-                tbl = pd.DataFrame({
-                    "region": sens.region_labels,
-                    "full": sens.full.regional_stat,
-                    "reduced": sens.reduced.regional_stat,
-                })
+                tbl = pd.DataFrame(
+                    {
+                        "region": sens.region_labels,
+                        "full": sens.full.regional_stat,
+                        "reduced": sens.reduced.regional_stat,
+                    }
+                )
                 sens_dir.write_table(tbl, f"{tag}__drop_{drop}")
                 results.append((tag, drop, sens))
         self.ctx["sensitivity"] = results
@@ -210,8 +251,11 @@ class Pipeline:
         for tag, res, _cc, _kk in self.ctx["contrasts"]:
             for hemi in hemis:
                 vec, labels_df = align_strength_to_atlas(
-                    res.regional_stat, res.region_labels,
-                    atlas=cfg.engine.atlas, hemisphere=hemi, regions=cfg.engine.regions,
+                    res.regional_stat,
+                    res.region_labels,
+                    atlas=cfg.engine.atlas,
+                    hemisphere=hemi,
+                    regions=cfg.engine.regions,
                 )
                 base = cfg.output / "03_transcriptomics"
                 if cfg.engine.compare_hemispheres:
@@ -226,6 +270,7 @@ class Pipeline:
             logger.info("FIGURES: save_figures disabled — skipping.")
             return
         import matplotlib
+
         matplotlib.use("Agg")
         from msnpip.viz.distributions import plot_strength_violin
         from msnpip.viz.scatter import plot_demographic_correlation
@@ -248,14 +293,19 @@ class Pipeline:
                 logger.warning("FIGURES: violin for %s failed: %s", tag, exc)
             try:
                 vec, labels_df = align_strength_to_atlas(
-                    res.regional_stat, res.region_labels,
-                    atlas=self.cfg.engine.atlas, hemisphere=self.cfg.engine.hemisphere,
+                    res.regional_stat,
+                    res.region_labels,
+                    atlas=self.cfg.engine.atlas,
+                    hemisphere=self.cfg.engine.hemisphere,
                     regions=self.cfg.engine.regions,
                 )
                 table = to_region_table(vec, labels_df, res.stat_type)
                 p = plot_surface_with_dorsal(
-                    table, atlas_id=self.cfg.engine.atlas, value_column=res.stat_type,
-                    title=tag, output_path=fig_dir / "surface" / f"{tag}_surface.png",
+                    table,
+                    atlas_id=self.cfg.engine.atlas,
+                    value_column=res.stat_type,
+                    title=tag,
+                    output_path=fig_dir / "surface" / f"{tag}_surface.png",
                 )
                 if p:
                     written.append(Path(p))
@@ -281,11 +331,13 @@ class Pipeline:
         self.ctx["report"] = pdf
         # Record every artifact under the tree (engine bundles + figures) for the manifest.
         for f in sorted(self.cfg.output.rglob("*")):
-            if f.is_file() and f.name != "manifest.json" and f.suffix.lower() not in (".pkl", ".pickle"):
-                try:
+            if (
+                f.is_file()
+                and f.name != "manifest.json"
+                and f.suffix.lower() not in (".pkl", ".pickle")
+            ):
+                with contextlib.suppress(ValueError):
                     self.out.record(f)
-                except ValueError:
-                    pass
         self.out.finalize(self.cfg.to_dict())
 
     # ------------------------------------------------------------------
@@ -309,8 +361,9 @@ class Pipeline:
             raise StageError("CONTRAST", "No group column and no contrast specified.")
         groups = list(pd.unique(self.ctx["df"][gcol].astype(str)))
         if len(groups) != 2:
-            raise StageError("CONTRAST",
-                             f"{len(groups)} groups found; specify --case/--control or --contrast.")
+            raise StageError(
+                "CONTRAST", f"{len(groups)} groups found; specify --case/--control or --contrast."
+            )
         return [(groups[0], groups[1])]
 
     def _resolve_contrast_df(self, df, schema, case, control):
@@ -372,9 +425,13 @@ def engine_commit() -> str:
 
 def _schema_to_dict(schema) -> dict:
     return {
-        "id_col": schema.id_col, "group_col": schema.group_col,
-        "age_col": schema.age_col, "sex_col": schema.sex_col, "tiv_col": schema.tiv_col,
-        "site_cols": list(schema.site_cols), "n_feature_cols": len(schema.feature_cols),
+        "id_col": schema.id_col,
+        "group_col": schema.group_col,
+        "age_col": schema.age_col,
+        "sex_col": schema.sex_col,
+        "tiv_col": schema.tiv_col,
+        "site_cols": list(schema.site_cols),
+        "n_feature_cols": len(schema.feature_cols),
     }
 
 

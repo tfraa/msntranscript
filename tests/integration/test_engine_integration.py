@@ -3,6 +3,7 @@
 Deselect with ``-m 'not slow'``.  Skips gracefully if the engine's surface-null
 assets are unavailable (e.g. CI without neuromaps data) rather than failing.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -24,7 +25,7 @@ def test_run_pls_corr_on_synthetic_aligned_vector(tmp_path):
 
     cfg = EngineConfig(
         methods=("pls", "corr"),
-        n_permutations=100,        # tiny — this is a smoke test, not a publication run
+        n_permutations=100,  # tiny — this is a smoke test, not a publication run
         enrichment_methods=("ensemble",),
         gene_sets=("GO_Biological_Process_2025",),
     )
