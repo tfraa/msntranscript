@@ -5,6 +5,7 @@ Phase 1, Tasks T1.3–T1.4.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 
 import pandas as pd
@@ -12,6 +13,25 @@ import pandas as pd
 from msnpip.errors import SchemaError
 
 logger = logging.getLogger("msnpip.io.schema")
+
+
+def _tokenize(name: str) -> list[str]:
+    """Lowercase a column name and split into alphanumeric tokens."""
+    return [t for t in re.split(r"[^a-z0-9]+", name.lower()) if t]
+
+
+def _matches_keyword(col: str, keyword: str) -> bool:
+    """True if *keyword*'s tokens occur as a contiguous run of whole tokens in *col*.
+
+    Token-based matching (not substring) so short keywords like ``"id"`` match
+    ``subject_id`` but never region names such as ``lh_middletemporal_SurfArea``.
+    """
+    col_tokens = _tokenize(col)
+    kw_tokens = _tokenize(keyword)
+    if not kw_tokens:
+        return False
+    n, m = len(col_tokens), len(kw_tokens)
+    return any(col_tokens[i : i + m] == kw_tokens for i in range(n - m + 1))
 
 # ---------------------------------------------------------------------------
 # Column role aliases (case-insensitive substring match)
@@ -89,7 +109,7 @@ def detect_schema(
     def _find(keywords: tuple[str, ...], label: str, required: bool = False) -> str | None:
         candidates = [
             c for c in cols
-            if c not in assigned and any(kw in c.lower() for kw in keywords)
+            if c not in assigned and any(_matches_keyword(c, kw) for kw in keywords)
         ]
         if not candidates:
             if required:
@@ -115,7 +135,7 @@ def detect_schema(
     # Site columns: may be multiple (multiple scanners one-hot encoded)
     site_cols = [
         c for c in cols
-        if c not in assigned and any(kw in c.lower() for kw in _SITE_KEYWORDS)
+        if c not in assigned and any(_matches_keyword(c, kw) for kw in _SITE_KEYWORDS)
     ]
     assigned.update(site_cols)
 

@@ -35,6 +35,8 @@ class DemographicCorrelationResult:
     fdr: np.ndarray | None = None      # regional only (BH across regions)
     region_labels: list[str] | None = None
     group: str | None = None           # group value if within_group used
+    x_values: np.ndarray | None = None  # variable values (global scope) — for scatter plot
+    y_values: np.ndarray | None = None  # global_strength values (global scope)
 
 
 def _corr(x: np.ndarray, y: np.ndarray, method: str) -> tuple[float, float]:
@@ -142,6 +144,8 @@ def correlate_strength_with_demographic(
             p=np.array([p]),
             n=int(np.sum(~np.isnan(gs) & ~np.isnan(var_vals))),
             group=group,
+            x_values=var_vals,
+            y_values=gs,
         )
     else:
         strength = strength_maps.strength[mask]

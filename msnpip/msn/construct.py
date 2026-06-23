@@ -182,7 +182,7 @@ class StrengthMaps:
     atlas: str
     features: list[str]            # metric names, in column order
     global_strength: np.ndarray    # (n_subjects,) — mean over regions
-    hemisphere: str = "left"
+    hemisphere: str = "both"
     regions: str = "cort"
     sign: str = "signed"
     dropped_subjects: list[str] = field(default_factory=list)
@@ -217,7 +217,7 @@ def compute_strength_maps(
     schema,
     *,
     atlas: str = "dk",
-    hemisphere: str = "left",
+    hemisphere: str = "both",
     regions: str = "cort",
     drop_threshold: float = 0.0,
     sign: str = "signed",
@@ -230,6 +230,13 @@ def compute_strength_maps(
     *hemisphere*, drops (never imputes) subjects whose fraction of missing
     features exceeds *drop_threshold*, then builds the MSN and node strength.
 
+    The MSN is a whole-cortex network, so *hemisphere* defaults to ``"both"``:
+    every region's node strength reflects its similarity to all other regions
+    across both hemispheres, and group differences are available for the left
+    and right cortex.  The choice of which hemisphere(s) to feed the
+    transcriptomics engine is made later (``EngineConfig.hemisphere``), at the
+    :func:`msnpip.atlas_align.align_strength_to_atlas` boundary — not here.
+
     Parameters
     ----------
     df
@@ -237,7 +244,8 @@ def compute_strength_maps(
     schema
         :class:`msnpip.io.schema.ColumnSchema` describing the columns.
     atlas, hemisphere, regions
-        Atlas selection.  ``hemisphere`` ∈ {``left``, ``right``, ``both``}.
+        Atlas selection.  ``hemisphere`` ∈ {``left``, ``right``, ``both``};
+        defaults to ``"both"`` (whole-cortex MSN).
     drop_threshold
         A subject is dropped if its proportion of missing (NaN) selected
         feature values is **greater than** this threshold.  The default

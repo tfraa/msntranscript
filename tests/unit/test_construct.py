@@ -163,6 +163,15 @@ class TestComputeStrengthMaps:
         assert sm.matrix.shape[1] == 68
         assert any(lbl.startswith("rh_") for lbl in sm.region_labels)
 
+    def test_default_is_both_hemispheres(self, cohort):
+        """MSN is whole-cortex by default — both hemispheres, 68 DK regions."""
+        df, schema, _ = cohort
+        sm = compute_strength_maps(df, schema)  # no hemisphere → default
+        assert sm.hemisphere == "both"
+        assert sm.matrix.shape[1] == 68
+        assert any(lbl.startswith("lh_") for lbl in sm.region_labels)
+        assert any(lbl.startswith("rh_") for lbl in sm.region_labels)
+
     def test_subject_ids_preserved(self, cohort):
         df, schema, info = cohort
         sm = compute_strength_maps(df, schema)
