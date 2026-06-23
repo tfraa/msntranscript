@@ -98,9 +98,10 @@ class TestValidateSchema:
     def test_object_dtype_feature_raises(self):
         df = _make_df()
         schema = detect_schema(df, expected_regions=DK_REGIONS[:2])
-        # Corrupt one feature column to object dtype
+        # Corrupt one feature column to a text dtype (object on pandas 2.x,
+        # string dtype on pandas 3.0 — both are non-numeric and must be flagged).
         df[schema.feature_cols[0]] = df[schema.feature_cols[0]].astype(str)
-        with pytest.raises(SchemaError, match="object dtype"):
+        with pytest.raises(SchemaError, match="non-numeric"):
             validate_schema(df, schema)
 
     def test_missing_predictor_raises(self):

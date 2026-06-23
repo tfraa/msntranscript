@@ -4,6 +4,7 @@ Covers plot_surface_with_dorsal's dorsal branch without real surface assets, so
 coverage is deterministic in CI (the real-asset render is exercised by the slow
 integration test).
 """
+
 from __future__ import annotations
 
 import matplotlib
@@ -47,8 +48,12 @@ def test_dorsal_path_with_mocked_engine(tmp_path, monkeypatch):
 
     out = tmp_path / "surface.png"
     result = plot_surface_with_dorsal(
-        table, atlas_id="dk", value_column="beta", title="t",
-        output_path=out, views=("lateral", "medial", "dorsal"),
+        table,
+        atlas_id="dk",
+        value_column="beta",
+        title="t",
+        output_path=out,
+        views=("lateral", "medial", "dorsal"),
     )
     assert result == out
     assert out.exists() and out.stat().st_size > 0
@@ -58,10 +63,16 @@ def test_no_finite_values_returns_none(tmp_path, monkeypatch):
     table = pd.DataFrame({"label": ["x"], "hemisphere": ["L"], "beta": [np.nan]})
     monkeypatch.setattr(se.brain, "matplotlib_backend", lambda: (None, plt))
     monkeypatch.setattr(se.brain, "surface_value_frames", lambda t: {"left": t})
-    monkeypatch.setattr(se.brain, "get_atlas", lambda a: types.SimpleNamespace(surface_paths=("a", "b")))
+    monkeypatch.setattr(
+        se.brain, "get_atlas", lambda a: types.SimpleNamespace(surface_paths=("a", "b"))
+    )
     monkeypatch.setattr(se.brain, "surface_mesh_paths", lambda a: ("a", "b"))
     out = plot_surface_with_dorsal(
-        table, atlas_id="dk", value_column="beta", title="t",
-        output_path=tmp_path / "o.png", views=("dorsal",),
+        table,
+        atlas_id="dk",
+        value_column="beta",
+        title="t",
+        output_path=tmp_path / "o.png",
+        views=("dorsal",),
     )
     assert out is None

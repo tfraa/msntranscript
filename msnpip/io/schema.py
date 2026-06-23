@@ -246,11 +246,14 @@ def validate_schema(
     if not schema.feature_cols:
         errors.append("No feature columns detected. Ensure morphometric data is present.")
     else:
-        object_feats = [c for c in schema.feature_cols if df[c].dtype == object]
+        # Non-numeric feature columns indicate a locale/encoding problem. Check
+        # is_numeric_dtype rather than `== object` so pandas string dtypes
+        # (the default for text in pandas 3.0) are caught too.
+        object_feats = [c for c in schema.feature_cols if not pd.api.types.is_numeric_dtype(df[c])]
         if object_feats:
             errors.append(
-                f"{len(object_feats)} feature column(s) have object dtype (likely locale issue "
-                f"or mixed text/number). First offenders: {object_feats[:5]}. "
+                f"{len(object_feats)} feature column(s) have non-numeric (object/string) dtype "
+                f"(likely locale issue or mixed text/number). First offenders: {object_feats[:5]}. "
                 "Check decimal separator (use --decimal=',' for European locale)."
             )
 
