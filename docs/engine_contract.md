@@ -21,8 +21,8 @@ reflected here before the msnpip code is updated.
 ```python
 import imaging_transcriptomics as imt
 atlases = imt.list_atlases()
-assert any(a.atlas_id == "dk" for a in atlases), "DK atlas missing"
-print("Engine OK — atlases:", [a.atlas_id for a in atlases])
+assert any(a.id == "dk" for a in atlases), "DK atlas missing"
+print("Engine OK — atlases:", [a.id for a in atlases])
 ```
 
 ---
