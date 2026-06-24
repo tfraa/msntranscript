@@ -22,6 +22,9 @@ from msnpip.errors import SchemaError
 
 logger = logging.getLogger("msnpip.stats.glm")
 
+# Below this per-group n, contrasts/violins are flagged as small-sample (spec R7).
+MIN_GROUP_N = 10
+
 
 # ---------------------------------------------------------------------------
 # T2.3 — build_design_matrix
@@ -347,6 +350,14 @@ def regional_group_contrast(
     n_control = int(len(sub) - n_case)
     if n_case < 1 or n_control < 1:
         raise SchemaError(f"Each arm needs ≥1 subject (case={n_case}, control={n_control}).")
+    if n_case < MIN_GROUP_N or n_control < MIN_GROUP_N:
+        logger.warning(
+            "Small group(s): case=%d, control=%d (< %d). Per-region contrasts and the "
+            "spatial null may be unstable; interpret with caution and prefer cohen_d.",
+            n_case,
+            n_control,
+            MIN_GROUP_N,
+        )
 
     # Build the design once: intercept + group + covariates.
     design_input = sub[covariates].copy() if covariates else pd.DataFrame(index=sub.index)

@@ -7,6 +7,11 @@ Subcommands:
   from-strength  resume from a persisted strength_maps.csv (runs CONTRAST→REPORT)
   list-atlases   print the engine's atlas table
   list-genesets  print the default gene sets
+
+Config precedence: ``--config FILE`` provides the base, and only the CLI flags the
+user *actually passed* override it (override-able flags default to
+``argparse.SUPPRESS`` so unset flags never clobber YAML values). Anything left
+unset falls back to the dataclass defaults in ``config.py``.
 """
 
 from __future__ import annotations
@@ -15,18 +20,13 @@ import argparse
 import sys
 from pathlib import Path
 
-from msnpip.config import (
-    CorrelationConfig,
-    EngineConfig,
-    GLMConfig,
-    IOConfig,
-    MSNConfig,
-    PipelineConfig,
-)
+from msnpip.config import EngineConfig, PipelineConfig
 from msnpip.errors import MsnpipError
 from msnpip.logging_ import configure_logging, get_logger
 
 logger = get_logger("msnpip.cli")
+
+_SUP = argparse.SUPPRESS
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -46,7 +46,7 @@ def build_parser() -> argparse.ArgumentParser:
     _add_glm_args(fs)
     _add_corr_args(fs)
     _add_engine_args(fs)
-    fs.add_argument("-v", "--verbose", action="store_true")
+    fs.add_argument("-v", "--verbose", action="store_true", default=_SUP)
 
     sub.add_parser("list-atlases", help="print available atlases (from the engine)")
     sub.add_parser("list-genesets", help="print the default gene sets")
@@ -55,13 +55,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 def _add_full_args(ap: argparse.ArgumentParser) -> None:
     g = ap.add_argument_group("input (one mode)")
-    g.add_argument("--input", type=Path, help="FreeSurfer subjects directory")
-    g.add_argument("--demographics", type=Path, help="demographics CSV (with --input)")
-    g.add_argument("--dataframe", type=Path, help="single merged wide-format file")
-    g.add_argument("--sep")
-    g.add_argument("--decimal")
-    g.add_argument("--sheet", default=0)
-    g.add_argument("--id-col")
+    g.add_argument("--input", type=Path, default=_SUP, help="FreeSurfer subjects directory")
+    g.add_argument(
+        "--demographics", type=Path, default=_SUP, help="demographics CSV (with --input)"
+    )
+    g.add_argument("--dataframe", type=Path, default=_SUP, help="single merged wide-format file")
+    g.add_argument("--sep", default=_SUP)
+    g.add_argument("--decimal", default=_SUP)
+    g.add_argument("--sheet", default=_SUP)
+    g.add_argument("--id-col", default=_SUP)
     ap.add_argument("--output", required=True, type=Path)
     ap.add_argument("--config", type=Path, help="YAML config (CLI flags override it)")
     _add_contrast_args(ap)
@@ -69,136 +71,165 @@ def _add_full_args(ap: argparse.ArgumentParser) -> None:
     _add_glm_args(ap)
     _add_corr_args(ap)
     _add_engine_args(ap)
-    ap.add_argument("--save-all", dest="save_all", action="store_true", default=True)
-    ap.add_argument("--no-save-all", dest="save_all", action="store_false")
-    ap.add_argument("--save-figures", dest="save_figures", action="store_true", default=True)
-    ap.add_argument("--no-save-figures", dest="save_figures", action="store_false")
-    ap.add_argument("--start-stage")
-    ap.add_argument("--stop-stage")
-    ap.add_argument("-v", "--verbose", action="store_true")
+    ap.add_argument("--save-all", dest="save_all", action="store_true", default=_SUP)
+    ap.add_argument("--no-save-all", dest="save_all", action="store_false", default=_SUP)
+    ap.add_argument("--save-figures", dest="save_figures", action="store_true", default=_SUP)
+    ap.add_argument("--no-save-figures", dest="save_figures", action="store_false", default=_SUP)
+    ap.add_argument("--start-stage", default=_SUP)
+    ap.add_argument("--stop-stage", default=_SUP)
+    ap.add_argument("-v", "--verbose", action="store_true", default=_SUP)
 
 
 def _add_contrast_args(ap):
-    ap.add_argument("--group-col")
-    ap.add_argument("--case")
-    ap.add_argument("--control")
-    ap.add_argument("--contrast", nargs=2, action="append", metavar=("CASE", "CTRL"))
+    ap.add_argument("--group-col", default=_SUP)
+    ap.add_argument("--case", default=_SUP)
+    ap.add_argument("--control", default=_SUP)
+    ap.add_argument("--contrast", nargs=2, action="append", metavar=("CASE", "CTRL"), default=_SUP)
 
 
 def _add_msn_args(ap):
-    ap.add_argument("--features", nargs="+")
-    ap.add_argument("--strength-sign", choices=("positive", "absolute", "signed"), default="signed")
-    ap.add_argument("--strength-agg", choices=("mean", "sum"), default="mean")
+    ap.add_argument("--features", nargs="+", default=_SUP)
+    ap.add_argument("--strength-sign", choices=("positive", "absolute", "signed"), default=_SUP)
+    ap.add_argument("--strength-agg", choices=("mean", "sum"), default=_SUP)
 
 
 def _add_glm_args(ap):
-    ap.add_argument("--predictors", nargs="+", default=[])
-    ap.add_argument("--contrast-stat", choices=("beta", "t", "cohen_d"), default="beta")
-    ap.add_argument("--exclude-covariate", nargs="+", dest="exclude_covariate", default=[])
+    ap.add_argument("--predictors", nargs="+", default=_SUP)
+    ap.add_argument("--contrast-stat", choices=("beta", "t", "cohen_d"), default=_SUP)
+    ap.add_argument("--exclude-covariate", nargs="+", dest="exclude_covariate", default=_SUP)
 
 
 def _add_corr_args(ap):
-    ap.add_argument("--correlate-with", nargs="+", dest="correlate_with", default=[])
-    ap.add_argument("--corr-method", choices=("pearson", "spearman"), default="spearman")
-    ap.add_argument("--corr-scope", choices=("global", "regional"), default="global")
-    ap.add_argument("--corr-within-group", dest="corr_within_group")
+    ap.add_argument("--correlate-with", nargs="+", dest="correlate_with", default=_SUP)
+    ap.add_argument("--corr-method", choices=("pearson", "spearman"), default=_SUP)
+    ap.add_argument("--corr-scope", choices=("global", "regional"), default=_SUP)
+    ap.add_argument("--corr-within-group", dest="corr_within_group", default=_SUP)
 
 
 def _add_engine_args(ap):
-    ap.add_argument("--atlas", default="dk")
-    ap.add_argument("--hemisphere", choices=("left", "both"), default="left")
-    ap.add_argument("--compare-hemispheres", action="store_true")
-    ap.add_argument("--regions", choices=("cort", "cort+sub"), default="cort")
-    ap.add_argument("--method", choices=("pls", "corr"), action="append", dest="method")
-    ap.add_argument("--ncomp", type=int)
-    ap.add_argument("--var", type=float)
-    ap.add_argument("--n-perm", type=int, default=10000, dest="n_perm")
-    ap.add_argument("--enrichment", choices=("ensemble", "gsea", "ora", "none"), action="append")
-    ap.add_argument("--geneset", nargs="+", dest="geneset")
-    ap.add_argument("--seed", type=int, default=1234)
+    ap.add_argument("--atlas", default=_SUP)
+    ap.add_argument("--hemisphere", choices=("left", "both"), default=_SUP)
+    ap.add_argument("--compare-hemispheres", action="store_true", default=_SUP)
+    ap.add_argument("--regions", choices=("cort", "cort+sub"), default=_SUP)
+    ap.add_argument(
+        "--method", choices=("pls", "corr"), action="append", dest="method", default=_SUP
+    )
+    ap.add_argument("--ncomp", type=int, default=_SUP)
+    ap.add_argument("--var", type=float, default=_SUP)
+    ap.add_argument("--n-perm", type=int, dest="n_perm", default=_SUP)
+    ap.add_argument(
+        "--enrichment", choices=("ensemble", "gsea", "ora", "none"), action="append", default=_SUP
+    )
+    ap.add_argument("--geneset", nargs="+", dest="geneset", default=_SUP)
+    ap.add_argument("--seed", type=int, default=_SUP)
+
+
+def _deep_merge(base: dict, override: dict) -> dict:
+    """Recursively merge *override* onto *base*; override wins on conflicts."""
+    out = dict(base)
+    for key, val in override.items():
+        if isinstance(val, dict) and isinstance(out.get(key), dict):
+            out[key] = _deep_merge(out[key], val)
+        else:
+            out[key] = val
+    return out
 
 
 def _cfg_from_args(args) -> PipelineConfig:
-    """Build a PipelineConfig from parsed `full`/`from-strength` args (CLI > YAML)."""
-    methods = tuple(args.method) if getattr(args, "method", None) else ("pls", "corr")
-    enrichment = (
-        tuple(args.enrichment) if getattr(args, "enrichment", None) else ("ensemble", "gsea")
-    )
-    n_components = (
-        None
-        if getattr(args, "var", None) is not None
-        else (args.ncomp if args.ncomp is not None else 1)
-    )
+    """Build a PipelineConfig from parsed args.
 
-    engine_kw = dict(
-        methods=methods,
-        atlas=args.atlas,
-        hemisphere=args.hemisphere,
-        compare_hemispheres=getattr(args, "compare_hemispheres", False),
-        regions=args.regions,
-        n_components=n_components,
-        var=getattr(args, "var", None),
-        n_permutations=args.n_perm,
-        enrichment_methods=enrichment,
-        seed=args.seed,
-    )
-    if getattr(args, "geneset", None):
-        engine_kw["gene_sets"] = tuple(args.geneset)
-    engine = EngineConfig(**engine_kw)
+    Only flags the user actually passed appear in ``vars(args)`` (override-able
+    flags use ``argparse.SUPPRESS``), so the CLI override dict is sparse and a
+    ``--config`` YAML base is preserved for anything left unset.
+    """
+    a = vars(args)
 
-    msn = MSNConfig(
-        features=tuple(args.features) if getattr(args, "features", None) else MSNConfig().features,
-        strength_sign=getattr(args, "strength_sign", "signed"),
-        strength_agg=getattr(args, "strength_agg", "mean"),
-    )
-    glm = GLMConfig(
-        predictors=tuple(args.predictors),
-        contrast_stat=args.contrast_stat,
-        exclude_covariates=tuple(args.exclude_covariate),
-    )
-    corr = CorrelationConfig(
-        variables=tuple(args.correlate_with),
-        method=args.corr_method,
-        scope=args.corr_scope,
-        within_group=args.corr_within_group,
-    )
-    io = IOConfig(
-        freesurfer_dir=getattr(args, "input", None),
-        demographics=getattr(args, "demographics", None),
-        dataframe=getattr(args, "dataframe", None),
-        sep=getattr(args, "sep", None),
-        decimal=getattr(args, "decimal", None),
-        sheet=getattr(args, "sheet", 0),
-        id_col=getattr(args, "id_col", None),
-        group_col=args.group_col,
-    )
-    contrasts = tuple(tuple(c) for c in args.contrast) if getattr(args, "contrast", None) else None
+    io: dict = {}
+    if "input" in a:
+        io["freesurfer_dir"] = str(a["input"])
+    if "demographics" in a:
+        io["demographics"] = str(a["demographics"])
+    if "dataframe" in a:
+        io["dataframe"] = str(a["dataframe"])
+    for src, dst in (
+        ("sep", "sep"),
+        ("decimal", "decimal"),
+        ("sheet", "sheet"),
+        ("id_col", "id_col"),
+    ):
+        if src in a:
+            io[dst] = a[src]
+    if "group_col" in a:
+        io["group_col"] = a["group_col"]
 
-    cfg = PipelineConfig(
-        io=io,
-        output=args.output,
-        group_col=args.group_col,
-        case=args.case,
-        control=args.control,
-        contrasts=contrasts,
-        msn=msn,
-        glm=glm,
-        correlation=corr,
-        engine=engine,
-        save_all=getattr(args, "save_all", True),
-        save_figures=getattr(args, "save_figures", True),
-        verbose=args.verbose,
-    )
+    msn: dict = {}
+    if "features" in a:
+        msn["features"] = list(a["features"])
+    if "strength_sign" in a:
+        msn["strength_sign"] = a["strength_sign"]
+    if "strength_agg" in a:
+        msn["strength_agg"] = a["strength_agg"]
 
-    if getattr(args, "config", None):
-        base = PipelineConfig.from_yaml(args.config)
-        cfg = _overlay(base, cfg)
-    return cfg
+    glm: dict = {}
+    if "predictors" in a:
+        glm["predictors"] = list(a["predictors"])
+    if "contrast_stat" in a:
+        glm["contrast_stat"] = a["contrast_stat"]
+    if "exclude_covariate" in a:
+        glm["exclude_covariates"] = list(a["exclude_covariate"])
 
+    corr: dict = {}
+    if "correlate_with" in a:
+        corr["variables"] = list(a["correlate_with"])
+    if "corr_method" in a:
+        corr["method"] = a["corr_method"]
+    if "corr_scope" in a:
+        corr["scope"] = a["corr_scope"]
+    if "corr_within_group" in a:
+        corr["within_group"] = a["corr_within_group"]
 
-def _overlay(base: PipelineConfig, override: PipelineConfig) -> PipelineConfig:
-    """Shallow overlay: override wins (CLI over YAML). Simplest useful policy."""
-    return override
+    engine: dict = {}
+    for src, dst in (
+        ("atlas", "atlas"),
+        ("hemisphere", "hemisphere"),
+        ("compare_hemispheres", "compare_hemispheres"),
+        ("regions", "regions"),
+        ("n_perm", "n_permutations"),
+        ("seed", "seed"),
+    ):
+        if src in a:
+            engine[dst] = a[src]
+    if "method" in a:
+        engine["methods"] = list(a["method"])
+    if "enrichment" in a:
+        engine["enrichment_methods"] = list(a["enrichment"])
+    if "geneset" in a:
+        engine["gene_sets"] = list(a["geneset"])
+    # n_components / var are mutually exclusive — passing --var clears n_components.
+    if "var" in a:
+        engine["var"] = a["var"]
+        engine["n_components"] = None
+    if "ncomp" in a:
+        engine["n_components"] = a["ncomp"]
+
+    override: dict = {"io": io, "msn": msn, "glm": glm, "correlation": corr, "engine": engine}
+    override = {k: v for k, v in override.items() if v} or {}
+    for key in ("output", "group_col", "case", "control", "save_all", "save_figures", "verbose"):
+        if key in a:
+            override[key] = str(a[key]) if key == "output" else a[key]
+    if "contrast" in a:
+        override["contrasts"] = [list(c) for c in a["contrast"]]
+
+    base: dict = {}
+    if a.get("config"):
+        import yaml
+
+        base = yaml.safe_load(Path(a["config"]).read_text(encoding="utf-8")) or {}
+
+    merged = _deep_merge(base, override)
+    if "output" not in merged:
+        raise MsnpipError("No output directory given (set --output or 'output:' in --config).")
+    return PipelineConfig.from_dict(merged)
 
 
 def main(argv=None) -> int:
@@ -215,8 +246,7 @@ def main(argv=None) -> int:
             print(gs)
         return 0
 
-    # from-strength resumes from an existing run dir's persisted strength.
-    from msnpip.pipeline import run_pipeline
+    from msnpip.pipeline import Pipeline, run_pipeline
 
     cfg = _cfg_from_args(args)
     start_stage = (
@@ -226,9 +256,7 @@ def main(argv=None) -> int:
 
     try:
         if args.command == "from-strength":
-            # input mode isn't required when resuming; skip cross-field input check.
-            from msnpip.pipeline import Pipeline
-
+            # input mode isn't required when resuming; skip the cross-field input check.
             Pipeline(cfg).run(start_stage=start_stage, stop_stage=stop_stage)
         else:
             run_pipeline(cfg, start_stage=start_stage, stop_stage=stop_stage)
