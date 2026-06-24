@@ -313,24 +313,35 @@ class Pipeline:
                 written.append(p)
             except Exception as exc:
                 logger.warning("FIGURES: violin for %s failed: %s", tag, exc)
+            # Surface maps use BOTH hemispheres (the contrast map is whole-cortex),
+            # rendered on both an inflated and a pial surface with clear titles.
             try:
+                case_lbl, ctrl_lbl = tag.split("_vs_", 1)
                 vec, labels_df = align_strength_to_atlas(
                     res.regional_stat,
                     res.region_labels,
                     atlas=self.cfg.engine.atlas,
-                    hemisphere=self.cfg.engine.hemisphere,
+                    hemisphere="both",
                     regions=self.cfg.engine.regions,
                 )
                 table = to_region_table(vec, labels_df, res.stat_type)
-                p = plot_surface_with_dorsal(
-                    table,
-                    atlas_id=self.cfg.engine.atlas,
-                    value_column=res.stat_type,
-                    title=tag,
-                    output_path=fig_dir / "surface" / f"{tag}_surface.png",
-                )
-                if p:
-                    written.append(Path(p))
+                title = f"{case_lbl} vs {ctrl_lbl}: node-strength {res.stat_type} contrast"
+                for mesh_kind in ("inflated", "pial"):
+                    subtitle = (
+                        f"MSN node-strength group contrast ({res.stat_type}) · "
+                        f"{self.cfg.engine.atlas} atlas · {mesh_kind} surface · both hemispheres"
+                    )
+                    p = plot_surface_with_dorsal(
+                        table,
+                        atlas_id=self.cfg.engine.atlas,
+                        value_column=res.stat_type,
+                        title=title,
+                        output_path=fig_dir / "surface" / f"{tag}_surface_{mesh_kind}.png",
+                        mesh_kind=mesh_kind,
+                        subtitle=subtitle,
+                    )
+                    if p:
+                        written.append(Path(p))
             except Exception as exc:
                 logger.warning("FIGURES: surface for %s failed: %s", tag, exc)
 

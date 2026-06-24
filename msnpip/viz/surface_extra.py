@@ -1,13 +1,12 @@
 """
-plot_surface_with_dorsal — extends engine plotting with a dorsal (top) view.
+plot_surface_with_dorsal — cortical surface maps with lateral/medial/dorsal views.
 Reuses imaging_transcriptomics.outputs.brain primitives.
 Phase 4, Task T4.3.
 
-The engine ships lateral + medial cortical views but not a dorsal (top-down)
-view.  When only lateral/medial are requested we delegate straight to the
-engine's ``plot_cortical_surface_map``.  When ``dorsal`` is requested we mirror
-the engine's matplotlib layout (RdBu_r, symmetric norm, horizontal colorbar)
-and add a top-down panel rendered with ``elev≈90``.
+Renders a regional map on the cortical surface for the hemispheres present in the
+table (both, when available), across lateral, medial and a dorsal (top-down,
+``elev≈90``) view.  The mesh family is selectable (``pial`` or ``inflated``).
+A title and subtitle make explicit what the map is and where it comes from.
 """
 
 from __future__ import annotations
@@ -17,7 +16,6 @@ from pathlib import Path
 
 import matplotlib.colors as mcolors
 import numpy as np
-from imaging_transcriptomics import plotting
 from imaging_transcriptomics.outputs import brain
 
 from msnpip.viz.theme import configure_theme
@@ -29,6 +27,7 @@ _AZIM_LATERAL = {"left": 180.0, "right": 0.0}
 _AZIM_MEDIAL = {"left": 0.0, "right": 180.0}
 _AZIM_DORSAL = 270.0
 _ELEV_DORSAL = 90.0
+_HEMI_LABEL = {"left": "L", "right": "R"}
 
 
 def plot_surface_with_dorsal(
@@ -39,40 +38,42 @@ def plot_surface_with_dorsal(
     title: str,
     output_path,
     views: tuple[str, ...] = ("lateral", "medial", "dorsal"),
+    mesh_kind: str = "pial",
+    subtitle: str | None = None,
 ) -> Path | None:
-    """Render a cortical map across the requested views, including dorsal.
+    """Render a cortical map across the requested views and hemispheres.
 
     Parameters
     ----------
     table
         Region table (``id, label, hemisphere, structure, <value_column>``) —
-        the output of :func:`msnpip.atlas_align.to_region_table`.
-    atlas_id, value_column, title, output_path
-        Forwarded to the engine renderer.
+        the output of :func:`msnpip.atlas_align.to_region_table`.  Both
+        hemispheres are rendered if present.
+    atlas_id, value_column
+        Atlas id and the value column to colour by.
+    title
+        Main figure title (what the map is).
+    output_path
+        PNG path to write.
     views
         Any of ``"lateral"``, ``"medial"``, ``"dorsal"`` in display order.
+    mesh_kind
+        ``"pial"`` (anatomical) or ``"inflated"`` (smoothed) surface.
+    subtitle
+        Optional second line (provenance: atlas, surface, measure).
 
     Returns
     -------
     Path | None
-        The written PNG path, or ``None`` if surface assets are unavailable
-        (no surface paths / empty frames / no finite values).
+        The written PNG path, or ``None`` if surface assets are unavailable.
     """
     configure_theme()
     views = tuple(views)
     unknown = [v for v in views if v not in ("lateral", "medial", "dorsal")]
     if unknown:
         raise ValueError(f"Unknown view(s) {unknown}; expected lateral/medial/dorsal.")
-
-    # Lateral/medial only → the engine already does this well.
-    if "dorsal" not in views:
-        return plotting.plot_cortical_surface_map(
-            table,
-            atlas_id=atlas_id,
-            value_column=value_column,
-            title=title,
-            output_path=output_path,
-        )
+    if mesh_kind not in ("pial", "inflated"):
+        raise ValueError(f"mesh_kind must be 'pial'/'inflated', got {mesh_kind!r}")
 
     _, plt = brain.matplotlib_backend()
 
@@ -84,8 +85,8 @@ def plot_surface_with_dorsal(
     if getattr(atlas, "surface_paths", None) is None:
         logger.warning("plot_surface_with_dorsal: atlas %s has no surface paths.", atlas_id)
         return None
-    inflated_paths = brain.surface_mesh_paths(atlas_id)
-    if inflated_paths is None:
+    mesh_paths = brain.surface_mesh_paths(atlas_id, mesh_kind=mesh_kind)
+    if mesh_paths is None:
         return None
 
     finite = table[value_column].to_numpy(dtype=float, copy=False)
@@ -100,7 +101,7 @@ def plot_surface_with_dorsal(
 
     def _render_hemi(ax, hemi: str, azim: float, elev: float | None) -> None:
         idx = hemi_index[hemi]
-        coords, triangles = brain.load_surface_mesh(inflated_paths[idx])
+        coords, triangles = brain.load_surface_mesh(mesh_paths[idx])
         label_array, code_to_name = brain.load_surface_parcellation(str(atlas.surface_paths[idx]))
         vertex_values = brain.vertex_values_for_hemisphere(
             hemi_frames[hemi],
@@ -113,18 +114,24 @@ def plot_surface_with_dorsal(
             kwargs["elev"] = elev
         brain.surface_view(ax, coords, triangles, vertex_values, **kwargs)
 
-    # Build the ordered panel list.
+    # Build the ordered panel list (per-hemisphere lateral/medial + a combined dorsal).
     panels: list[tuple[str, object]] = []
     for view in views:
         if view == "lateral":
             for h in present:
                 panels.append(
-                    (f"{h} lateral", lambda ax, h=h: _render_hemi(ax, h, _AZIM_LATERAL[h], None))
+                    (
+                        f"{_HEMI_LABEL[h]} lateral",
+                        lambda ax, h=h: _render_hemi(ax, h, _AZIM_LATERAL[h], None),
+                    )
                 )
         elif view == "medial":
             for h in present:
                 panels.append(
-                    (f"{h} medial", lambda ax, h=h: _render_hemi(ax, h, _AZIM_MEDIAL[h], None))
+                    (
+                        f"{_HEMI_LABEL[h]} medial",
+                        lambda ax, h=h: _render_hemi(ax, h, _AZIM_MEDIAL[h], None),
+                    )
                 )
         else:  # dorsal — one panel, all present hemispheres from the top
 
@@ -135,18 +142,18 @@ def plot_surface_with_dorsal(
             panels.append(("dorsal", _render_dorsal))
 
     n = len(panels)
-    fig = plt.figure(figsize=(3.3 * n, 3.8))
+    fig = plt.figure(figsize=(3.0 * n, 3.9))
     fig.patch.set_facecolor("white")
 
     margin = 0.02
     panel_w = (1.0 - (n + 1) * margin) / n
     for i, (label, render) in enumerate(panels):
         left = margin + i * (panel_w + margin)
-        ax = fig.add_axes([left, 0.20, panel_w, 0.70], projection="3d")
+        ax = fig.add_axes([left, 0.18, panel_w, 0.66], projection="3d")
         render(ax)
         fig.text(
             left + panel_w / 2.0,
-            0.90,
+            0.86,
             label,
             ha="center",
             va="bottom",
@@ -154,15 +161,23 @@ def plot_surface_with_dorsal(
             color="#334155",
         )
 
-    fig.text(0.02, 0.97, title, ha="left", va="top", fontweight="bold", fontsize=12.0)
+    fig.text(0.02, 0.975, title, ha="left", va="top", fontweight="bold", fontsize=12.5)
+    sub = subtitle or f"{atlas_id} atlas · {mesh_kind} surface · {value_column}"
+    fig.text(0.02, 0.93, sub, ha="left", va="top", fontsize=9.0, color="#555555")
 
     mappable = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
     mappable.set_array([])
-    cbar_ax = fig.add_axes([0.36, 0.08, 0.28, 0.035])
+    cbar_ax = fig.add_axes([0.37, 0.07, 0.26, 0.032])
     colorbar = fig.colorbar(mappable, cax=cbar_ax, orientation="horizontal")
     colorbar.set_ticks([-vmax, 0.0, vmax])
     colorbar.set_label(value_column, fontsize=9.5)
 
     out = brain.save_figure(fig, Path(output_path))
-    logger.info("plot_surface_with_dorsal: wrote %s (views=%s)", out, views)
+    logger.info(
+        "plot_surface_with_dorsal: wrote %s (views=%s, mesh=%s, hemis=%s)",
+        out,
+        views,
+        mesh_kind,
+        present,
+    )
     return out

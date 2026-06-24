@@ -10,7 +10,6 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import pytest
 
-import msnpip.viz.surface_extra as surface_extra
 from msnpip.io.schema import detect_schema
 from msnpip.msn.construct import compute_strength_maps
 from msnpip.stats.correlation import correlate_strength_with_demographic
@@ -122,25 +121,6 @@ class TestScatter:
 
 
 class TestSurfaceExtra:
-    def test_lateral_medial_delegates_to_engine(self, monkeypatch, tmp_path):
-        calls = {}
-
-        def fake_plot(table, *, atlas_id, value_column, title, output_path):
-            calls["delegated"] = True
-            return tmp_path / "fake.png"
-
-        monkeypatch.setattr(surface_extra.plotting, "plot_cortical_surface_map", fake_plot)
-        out = plot_surface_with_dorsal(
-            pd.DataFrame({"label": ["bankssts"], "hemisphere": ["L"], "beta": [0.1]}),
-            atlas_id="dk",
-            value_column="beta",
-            title="t",
-            output_path=tmp_path / "out.png",
-            views=("lateral", "medial"),
-        )
-        assert calls.get("delegated") is True
-        assert out == tmp_path / "fake.png"
-
     def test_unknown_view_raises(self, tmp_path):
         with pytest.raises(ValueError, match="Unknown view"):
             plot_surface_with_dorsal(
@@ -150,4 +130,15 @@ class TestSurfaceExtra:
                 title="t",
                 output_path=tmp_path / "o.png",
                 views=("sagittal",),
+            )
+
+    def test_unknown_mesh_kind_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="mesh_kind"):
+            plot_surface_with_dorsal(
+                pd.DataFrame({"label": ["x"], "hemisphere": ["L"], "beta": [0.1]}),
+                atlas_id="dk",
+                value_column="beta",
+                title="t",
+                output_path=tmp_path / "o.png",
+                mesh_kind="banana",
             )

@@ -33,7 +33,7 @@ def test_dorsal_path_with_mocked_engine(tmp_path, monkeypatch):
     monkeypatch.setattr(se.brain, "matplotlib_backend", lambda: (None, plt))
     monkeypatch.setattr(se.brain, "surface_value_frames", lambda t: {"left": t})
     monkeypatch.setattr(se.brain, "get_atlas", lambda a: atlas)
-    monkeypatch.setattr(se.brain, "surface_mesh_paths", lambda a: ("lh.mesh", "rh.mesh"))
+    monkeypatch.setattr(se.brain, "surface_mesh_paths", lambda a, **k: ("lh.mesh", "rh.mesh"))
     monkeypatch.setattr(se.brain, "load_surface_mesh", lambda p: (coords, triangles))
     monkeypatch.setattr(se.brain, "load_surface_parcellation", lambda p: (np.zeros(4), {}))
     monkeypatch.setattr(se.brain, "vertex_values_for_hemisphere", lambda *a, **k: np.zeros(4))
@@ -66,7 +66,7 @@ def test_no_finite_values_returns_none(tmp_path, monkeypatch):
     monkeypatch.setattr(
         se.brain, "get_atlas", lambda a: types.SimpleNamespace(surface_paths=("a", "b"))
     )
-    monkeypatch.setattr(se.brain, "surface_mesh_paths", lambda a: ("a", "b"))
+    monkeypatch.setattr(se.brain, "surface_mesh_paths", lambda a, **k: ("a", "b"))
     out = plot_surface_with_dorsal(
         table,
         atlas_id="dk",
