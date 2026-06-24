@@ -133,14 +133,45 @@ class TestErrors:
         with pytest.raises(MsnpipEngineError, match="length"):
             run_transcriptomics(np.arange(10.0), _labels_df(34), cfg, tmp_path, "tag")
 
-    def test_surface_null_fallback_raises(self, monkeypatch, tmp_path):
+    def test_surface_null_fallback_raises_when_fallback_disabled(self, monkeypatch, tmp_path):
         def fallback_pls(data, **kwargs):
             return _fake_result(null_method="random")
 
         monkeypatch.setattr(engine.imt, "run_pls", fallback_pls, raising=False)
-        cfg = EngineConfig(methods=("pls",), n_permutations=10)
+        cfg = EngineConfig(methods=("pls",), n_permutations=10, allow_null_fallback=False)
         with pytest.raises(MsnpipSurfaceNullError, match="random"):
             run_transcriptomics(np.arange(34.0), _labels_df(34), cfg, tmp_path, "tag")
+
+    def test_degraded_null_allowed_with_fallback(self, monkeypatch, tmp_path):
+        # Default allow_null_fallback=True: a degraded (random) null warns, not raises.
+        monkeypatch.setattr(
+            engine.imt, "run_pls", lambda data, **k: _fake_result("random"), raising=False
+        )
+        cfg = EngineConfig(methods=("pls",), n_permutations=10)
+        out = run_transcriptomics(np.arange(34.0), _labels_df(34), cfg, tmp_path, "tag")
+        assert "pls" in out
+
+    def test_null_error_triggers_auto_retry(self, monkeypatch, tmp_path):
+        class NullModelError(Exception):
+            pass
+
+        calls = []
+
+        def fake(data, **kwargs):
+            calls.append(kwargs["null_method"])
+            if kwargs["null_method"] == "vasa":
+                raise NullModelError("Unable to generate cortical nulls with method 'vasa'.")
+            return _fake_result(null_method="random")
+
+        monkeypatch.setattr(engine.imt, "run_pls", fake, raising=False)
+        cfg = EngineConfig(methods=("pls",), n_permutations=10)  # fallback on by default
+        out = run_transcriptomics(np.arange(34.0), _labels_df(34), cfg, tmp_path, "tag")
+        assert "pls" in out
+        assert calls == ["vasa", "auto"]
+
+    def test_enable_annot_shim_idempotent(self):
+        engine.enable_annot_surface_nulls()
+        engine.enable_annot_surface_nulls()  # no crash on second call
 
     def test_require_surface_null_false_allows_random(self, monkeypatch, tmp_path):
         def fallback_pls(data, **kwargs):

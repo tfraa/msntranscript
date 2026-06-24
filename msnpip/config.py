@@ -43,6 +43,10 @@ class EngineConfig:
     n_permutations: int = 10000
     null_method: str = "vasa"
     require_surface_null: bool = True
+    # If the surface spin still fails, fall back to the engine's 'auto'
+    # (vasa → alexander_bloch → random) instead of hard-failing. Records the
+    # resolved null; a degraded (random) null is warned, not fatal.
+    allow_null_fallback: bool = True
     enrichment_methods: tuple[Literal["ensemble", "gsea", "ora", "none"], ...] = (
         "ensemble",
         "gsea",
