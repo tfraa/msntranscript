@@ -23,14 +23,19 @@ from msnpip.atlas_align import align_strength_to_atlas, engine_region_order, to_
 from msnpip.config import PipelineConfig
 from msnpip.errors import ConfigurationError, StageError
 from msnpip.io.matching import merge_features_demographics
-from msnpip.io.readers import read_freesurfer_subjects, read_table
-from msnpip.io.schema import detect_schema, validate_schema
+from msnpip.io.readers import (
+    detect_input_kind,
+    read_feature_tables,
+    read_freesurfer_subjects,
+    read_table,
+)
+from msnpip.io.schema import detect_id_column, detect_schema, validate_schema
 from msnpip.io.writers import OutputManager
 from msnpip.logging_ import phase_banner
 from msnpip.msn.construct import StrengthMaps, compute_strength_maps
 from msnpip.report.builder import ReportBuilder
 from msnpip.stats.correlation import correlate_strength_with_demographic
-from msnpip.stats.glm import regional_group_contrast
+from msnpip.stats.glm import normalize_group_value, regional_group_contrast
 from msnpip.stats.sensitivity import covariate_exclusion_contrast
 
 logger = logging.getLogger("msnpip.pipeline")
@@ -92,24 +97,33 @@ class Pipeline:
             df = read_table(io.dataframe, sep=io.sep, decimal=io.decimal, sheet=io.sheet)
             report = {"mode": "dataframe", "source": str(io.dataframe), "n_subjects": len(df)}
         else:
-            feats = read_freesurfer_subjects(
-                io.freesurfer_dir, expected_regions=self._atlas_regions()
-            )
-            dem = read_table(io.demographics, sep=io.sep, decimal=io.decimal, sheet=io.sheet)
-            dem_id = io.id_col or "subject_id"
-            df = merge_features_demographics(
-                feats,
-                dem,
-                feat_id_col="subject_id",
-                dem_id_col=dem_id,
-                min_match_rate=io.min_id_match_rate,
-            )
-            report = {
-                "mode": "freesurfer",
-                "n_features": len(feats),
-                "n_demographics": len(dem),
-                "n_merged": len(df),
-            }
+            kind = detect_input_kind(io.freesurfer_dir)
+            if kind == "feature_tables":
+                feats = read_feature_tables(io.freesurfer_dir, sep=io.sep, decimal=io.decimal)
+            else:
+                feats = read_freesurfer_subjects(
+                    io.freesurfer_dir, expected_regions=self._atlas_regions()
+                )
+            report = {"mode": kind, "n_features": len(feats)}
+
+            if io.demographics is not None:
+                dem = read_table(io.demographics, sep=io.sep, decimal=io.decimal, sheet=io.sheet)
+                # Detect the id column in each source independently (names may differ).
+                dem_id = detect_id_column(dem, io.id_col)
+                df = merge_features_demographics(
+                    feats,
+                    dem,
+                    feat_id_col="subject_id",
+                    dem_id_col=dem_id,
+                    min_match_rate=io.min_id_match_rate,
+                )
+                # Drop a duplicate demographics id column from the suffixed merge.
+                df = df.drop(columns=[c for c in df.columns if c.endswith("_dem")], errors="ignore")
+                report.update(n_demographics=len(dem), dem_id_col=dem_id, n_merged=len(df))
+            else:
+                # Feature tables can already carry Group/Diagnosis/tiv etc.
+                df = feats
+                report["n_merged"] = len(df)
         self.ctx["df"] = df
         inputs = self.out.subdir("00_inputs")
         inputs.write_table(df, "merged_data")
@@ -119,9 +133,17 @@ class Pipeline:
     def _stage_validate(self) -> None:
         df = self.ctx["df"]
         schema = detect_schema(df, expected_regions=self._atlas_regions())
+        # CLI --group-col / --id-col are authoritative: force them over detection (issue 4).
         gcol = self.cfg.resolved_group_col()
-        if gcol and schema.group_col is None:
-            schema = replace(schema, group_col=gcol)
+        overrides = {}
+        if gcol:
+            if gcol not in df.columns:
+                raise StageError("VALIDATE", f"--group-col {gcol!r} not found in data columns.")
+            overrides["group_col"] = gcol
+        if self.cfg.io.id_col and self.cfg.io.id_col in df.columns:
+            overrides["id_col"] = self.cfg.io.id_col
+        if overrides:
+            schema = replace(schema, **overrides)
         predictors = tuple(self.cfg.glm.predictors)
         validate_schema(
             df,
@@ -371,8 +393,10 @@ class Pipeline:
         gcol = schema.group_col
         if control == "rest":
             work = df.copy()
-            work[gcol] = np.where(work[gcol].astype(str) == str(case), str(case), "rest")
-            return work, str(case), "rest"
+            case_norm = normalize_group_value(case)
+            is_case = work[gcol].map(normalize_group_value) == case_norm
+            work[gcol] = np.where(is_case, case_norm, "rest")
+            return work, case_norm, "rest"
         return df, case, control
 
     def _hydrate(self, start_index: int) -> None:

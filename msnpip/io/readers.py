@@ -173,7 +173,13 @@ def read_freesurfer_subjects(
         subj_issues: list[str] = []
 
         for hemi in ("lh", "rh"):
+            # Stats files are usually in <subj>/stats/, but FreeSurfer exports
+            # sometimes place them directly in <subj>/ — accept both (issue 3).
             stats_path = subj_dir / "stats" / f"{hemi}.aparc.stats"
+            if not stats_path.exists():
+                alt = subj_dir / f"{hemi}.aparc.stats"
+                if alt.exists():
+                    stats_path = alt
             if not stats_path.exists():
                 msg = f"{subj_id}: missing {hemi}.aparc.stats"
                 subj_issues.append(msg)
@@ -225,6 +231,170 @@ def read_freesurfer_subjects(
         len(issues),
     )
     return df
+
+
+# ---------------------------------------------------------------------------
+# Per-feature tables (one file per metric × hemisphere, all subjects inside)
+# ---------------------------------------------------------------------------
+
+# Map the metric token found in a column suffix → canonical MSN metric name.
+_FEATURE_METRIC_ALIASES: dict[str, str] = {
+    "surfarea": "SurfArea",
+    "area": "SurfArea",
+    "volume": "GrayVol",
+    "grayvol": "GrayVol",
+    "vol": "GrayVol",
+    "thickness": "ThickAvg",
+    "thickavg": "ThickAvg",
+    "thick": "ThickAvg",
+    "meancurv": "MeanCurv",
+    "gauscurv": "GausCurv",
+    "gausscurv": "GausCurv",
+}
+_DEMO_TABLE_COLS = ("group", "diagnosis", "etiv", "tiv", "icv", "brainsegvolnotvent", "age", "sex")
+_TABULAR_SUFFIXES = (".csv", ".tsv", ".txt", ".xlsx", ".xls")
+
+
+def _parse_feature_column(col: str) -> str | None:
+    """Map a region-feature column to canonical ``{hemi}_{region}_{Metric}``.
+
+    Robust to metric-token spelling (``gauscurv``/``gausscurv`` → ``GausCurv``)
+    by reading the canonical metric from the column's own suffix, not the file
+    name.  Returns ``None`` for non-feature columns.
+    """
+    parts = col.strip().split("_")
+    if len(parts) < 3 or parts[0] not in ("lh", "rh"):
+        return None
+    metric = _FEATURE_METRIC_ALIASES.get(parts[-1].lower())
+    if metric is None:
+        return None
+    region = "_".join(parts[1:-1])
+    return f"{parts[0]}_{region}_{metric}"
+
+
+def _gather_feature_files(source) -> list[Path]:
+    if isinstance(source, (str, Path)):
+        root = Path(source)
+        files = sorted(p for p in root.glob("aparc_*") if p.suffix.lower() in _TABULAR_SUFFIXES)
+        if not files:
+            files = sorted(p for p in root.iterdir() if p.suffix.lower() in _TABULAR_SUFFIXES)
+    else:
+        files = [Path(p) for p in source]
+    return _dedupe_by_stem(files)
+
+
+def _dedupe_by_stem(files: list[Path]) -> list[Path]:
+    """Keep one file per stem when the same table ships in several formats
+    (e.g. ``aparc_thickness_lh.tsv`` and ``.xlsx``) — prefer text formats."""
+    pref = {".csv": 0, ".tsv": 1, ".txt": 2, ".xlsx": 3, ".xls": 4}
+    best: dict[str, Path] = {}
+    for f in files:
+        key = f.stem.lower()
+        if key not in best or pref.get(f.suffix.lower(), 9) < pref.get(best[key].suffix.lower(), 9):
+            best[key] = f
+    return [best[k] for k in sorted(best)]
+
+
+def read_feature_tables(
+    source,
+    *,
+    sep: str | None = None,
+    decimal: str | None = None,
+) -> pd.DataFrame:
+    """Read per-feature morphometric tables and merge into the canonical matrix.
+
+    Each input file holds one metric × hemisphere for all subjects: the first
+    column is the subject ID and the region columns are
+    ``{hemi}_{region}_{metric_token}`` (e.g. ``lh_bankssts_gauscurv``).  Files
+    are merged on subject ID into the wide ``{hemi}_{region}_{Metric}`` matrix.
+    Embedded demographic columns (``Group``, ``Diagnosis``, ``eTIV``→``tiv`` …)
+    are carried through once if present.
+
+    Parameters
+    ----------
+    source
+        A directory (globs ``aparc_*`` tabular files, else any tabular file) or
+        an explicit list of file paths.
+    sep, decimal
+        Forwarded to :func:`read_table` (auto-detected when ``None``).
+
+    Returns
+    -------
+    pd.DataFrame
+        ``subject_id`` + canonical feature columns + any demographic columns.
+    """
+    paths = _gather_feature_files(source)
+    if not paths:
+        raise MsnpipIOError(f"No tabular feature files found under '{source}'.")
+
+    feature_frames: list[pd.DataFrame] = []
+    demo_frame: pd.DataFrame | None = None
+
+    for path in paths:
+        df = read_table(path, sep=sep, decimal=decimal)
+        if df.shape[1] < 2:
+            continue
+        df = df.rename(columns={df.columns[0]: "subject_id"})
+        df["subject_id"] = df["subject_id"].astype(str).str.strip()
+
+        rename = {c: _parse_feature_column(c) for c in df.columns}
+        rename = {c: new for c, new in rename.items() if new is not None}
+        if not rename:
+            continue
+
+        sub = df[["subject_id"]].copy()
+        for old, new in rename.items():
+            sub[new] = df[old]
+        feature_frames.append(sub)
+
+        if demo_frame is None:
+            demo_cols = [c for c in df.columns if c.lower() in _DEMO_TABLE_COLS]
+            if demo_cols:
+                demo = df[["subject_id", *demo_cols]].copy()
+                demo = demo.rename(columns={c: "tiv" for c in demo.columns if c.lower() == "etiv"})
+                demo_frame = demo
+
+    if not feature_frames:
+        raise MsnpipIOError(
+            f"No recognizable '{{hemi}}_{{region}}_{{metric}}' feature columns in {len(paths)} "
+            f"file(s) under '{source}'."
+        )
+
+    merged = feature_frames[0]
+    for frame in feature_frames[1:]:
+        merged = merged.merge(frame, on="subject_id", how="outer")
+    if demo_frame is not None:
+        merged = merged.merge(demo_frame, on="subject_id", how="left")
+
+    logger.info(
+        "read_feature_tables: %d file(s) → %d subjects, %d feature columns",
+        len(paths),
+        len(merged),
+        sum(c not in ("subject_id",) for c in merged.columns),
+    )
+    return merged
+
+
+def detect_input_kind(path: str | Path) -> str:
+    """Classify a FreeSurfer input directory as ``'subjects'`` or ``'feature_tables'``.
+
+    ``'subjects'`` → per-subject ``aparc.stats`` (in ``<subj>/stats/`` or
+    ``<subj>/``).  ``'feature_tables'`` → per-metric tables with all subjects.
+    """
+    root = Path(path)
+    if root.is_dir():
+        for sub in root.iterdir():
+            if sub.is_dir() and any(
+                (sub / "stats" / f"{h}.aparc.stats").exists() or (sub / f"{h}.aparc.stats").exists()
+                for h in ("lh", "rh")
+            ):
+                return "subjects"
+        for p in root.glob("aparc_*"):
+            if p.suffix.lower() in _TABULAR_SUFFIXES:
+                return "feature_tables"
+        if any(p.suffix.lower() in _TABULAR_SUFFIXES for p in root.iterdir()):
+            return "feature_tables"
+    return "subjects"
 
 
 def _parse_aparc_stats(text: str, metrics: tuple[str, ...]) -> dict[str, dict[str, float]]:

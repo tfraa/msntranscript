@@ -21,6 +21,20 @@ def _tokenize(name: str) -> list[str]:
     return [t for t in re.split(r"[^a-z0-9]+", name.lower()) if t]
 
 
+def detect_id_column(df: pd.DataFrame, override: str | None = None) -> str:
+    """Best-guess the subject-ID column name (issue 2: names differ across files).
+
+    Returns *override* if given and present; otherwise the first column matching
+    an id alias by token; otherwise the first column.
+    """
+    if override is not None and override in df.columns:
+        return override
+    for col in df.columns:
+        if any(_matches_keyword(col, kw) for kw in _ID_KEYWORDS):
+            return col
+    return str(df.columns[0])
+
+
 def _matches_keyword(col: str, keyword: str) -> bool:
     """True if *keyword*'s tokens occur as a contiguous run of whole tokens in *col*.
 

@@ -19,6 +19,7 @@ from scipy import stats as sp_stats
 from statsmodels.stats.multitest import multipletests
 
 from msnpip.errors import SchemaError
+from msnpip.stats.glm import group_mask
 
 logger = logging.getLogger("msnpip.stats.correlation")
 
@@ -120,7 +121,7 @@ def correlate_strength_with_demographic(
         group_col = group_col or getattr(schema, "group_col", None)
         if group_col is None or group_col not in aligned.columns:
             raise SchemaError(f"within_group requested but group column {group_col!r} not found.")
-        mask = (aligned[group_col] == within_group).to_numpy()
+        mask = group_mask(aligned[group_col], within_group).to_numpy()
         group = str(within_group)
         if mask.sum() == 0:
             raise SchemaError(f"No subjects in group {within_group!r} (column {group_col!r}).")

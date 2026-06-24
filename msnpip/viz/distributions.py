@@ -12,6 +12,7 @@ import numpy as np
 import pandas as pd
 from scipy import stats as sp_stats
 
+from msnpip.stats.glm import normalize_group_value
 from msnpip.viz.theme import configure_theme, format_p, group_colors, significance_stars
 
 logger = logging.getLogger("msnpip.viz.distributions")
@@ -95,9 +96,14 @@ def plot_strength_violin(
         raise ValueError(f"group column {gcol!r} not found")
 
     aligned = df.set_index(df[schema.id_col].astype(str)).loc[strength_maps.subject_ids]
-    groups = aligned[gcol].astype(str).to_numpy()
+    # Normalize group values so 1 / 1.0 / "1" match the requested labels (issue 5).
+    groups = aligned[gcol].map(normalize_group_value).to_numpy()
 
-    order = list(pd.unique(groups)) if group_labels is None else [str(g) for g in group_labels]
+    order = (
+        list(pd.unique(groups))
+        if group_labels is None
+        else [normalize_group_value(g) for g in group_labels]
+    )
 
     data: list[np.ndarray] = []
     for g in order:

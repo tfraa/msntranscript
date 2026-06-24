@@ -26,6 +26,28 @@ logger = logging.getLogger("msnpip.stats.glm")
 MIN_GROUP_N = 10
 
 
+def normalize_group_value(value) -> str:
+    """Canonical string for a group code so 1, 1.0 and '1' all match (issue 5)."""
+    if value is None or (isinstance(value, float) and value != value):  # None / NaN
+        return ""
+    if isinstance(value, float) and value.is_integer():
+        return str(int(value))
+    s = str(value).strip()
+    try:
+        f = float(s)
+        if f.is_integer():
+            return str(int(f))
+    except ValueError:
+        pass
+    return s
+
+
+def group_mask(series: pd.Series, label) -> pd.Series:
+    """Boolean mask of *series* rows whose group value matches *label*,
+    robust to numeric/string differences (``1`` vs ``1.0`` vs ``'1'``)."""
+    return series.map(normalize_group_value) == normalize_group_value(label)
+
+
 # ---------------------------------------------------------------------------
 # T2.3 — build_design_matrix
 # ---------------------------------------------------------------------------
@@ -334,8 +356,8 @@ def regional_group_contrast(
         ) from exc
 
     group_series = aligned[group_col]
-    is_case = (group_series == case_label).to_numpy()
-    is_control = (group_series == control_label).to_numpy()
+    is_case = group_mask(group_series, case_label).to_numpy()
+    is_control = group_mask(group_series, control_label).to_numpy()
     keep = is_case | is_control
     if keep.sum() == 0:
         raise SchemaError(
@@ -345,7 +367,7 @@ def regional_group_contrast(
 
     sub = aligned.loc[keep].copy()
     strength = strength_maps.strength[keep]
-    group_indicator = (sub[group_col] == case_label).astype(float)
+    group_indicator = group_mask(sub[group_col], case_label).astype(float)
     n_case = int(group_indicator.sum())
     n_control = int(len(sub) - n_case)
     if n_case < 1 or n_control < 1:
