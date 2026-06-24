@@ -165,7 +165,7 @@ class Pipeline:
             atlas=self.cfg.engine.atlas,
             hemisphere="both",
             regions=self.cfg.engine.regions,
-            sign=self.cfg.msn.strength_sign,
+            agg=self.cfg.msn.strength_agg,
             metrics=tuple(self.cfg.msn.features),
         )
         self.ctx["strength_maps"] = sm
@@ -432,7 +432,7 @@ class Pipeline:
             global_strength=np.nanmean(strength, axis=1),
             hemisphere="both",
             regions=self.cfg.engine.regions,
-            sign=self.cfg.msn.strength_sign,
+            agg=self.cfg.msn.strength_agg,
         )
 
 

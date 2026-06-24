@@ -85,8 +85,8 @@ class MSNConfig:
     features: tuple[str, ...] = ("SurfArea", "GrayVol", "ThickAvg", "MeanCurv", "GausCurv")
     similarity: CorrMethod = "pearson"
     zscore_within_subject: bool = True
-    strength_sign: StrengthSign = "signed"
-    strength_agg: StrengthAgg = "mean"
+    strength_sign: StrengthSign = "signed"  # legacy/no-op for the Euclidean-similarity MSN
+    strength_agg: StrengthAgg = "sum"  # node strength = sum of edge weights (Tomasella et al.)
 
 
 @dataclass(frozen=True)

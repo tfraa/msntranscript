@@ -5,7 +5,6 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import pytest
-from scipy import stats as sp_stats
 
 from msnpip.errors import MSNInputError
 from msnpip.io.schema import detect_schema
@@ -23,46 +22,42 @@ from tests.fixtures.synthetic import DK_REGIONS, make_synthetic_cohort
 # ---------------------------------------------------------------------------
 
 
+_C = 0.6745  # modified-z-score constant
+
+
 class TestBuildMSN:
     def test_shape_and_diagonal(self):
         rng = np.random.default_rng(0)
-        feats = rng.normal(size=(4, 10, 5))  # 4 subjects, 10 regions, 5 metrics
+        feats = rng.normal(size=(4, 10, 5))
         msn = build_msn(feats)
         assert msn.shape == (4, 10, 10)
         for s in range(4):
             assert np.all(np.isnan(np.diag(msn[s])))
 
-    def test_symmetric(self):
+    def test_symmetric_and_bounded(self):
         rng = np.random.default_rng(1)
         feats = rng.normal(size=(8, 5))
-        msn = build_msn(feats)  # single subject → 2-D
-        assert msn.shape == (8, 8)
+        msn = build_msn(feats)
         off = ~np.eye(8, dtype=bool)
         np.testing.assert_allclose(msn[off], msn.T[off])
+        # similarities are bounded (0, 1]
+        assert np.nanmin(msn) > 0.0
+        assert np.nanmax(msn) <= 1.0
 
-    def test_matches_scipy_pearson_on_zscored_features(self):
-        """Off-diagonal entries equal pearsonr of column-standardized features."""
-        rng = np.random.default_rng(2)
-        feats = rng.normal(size=(6, 5))
-        z = (feats - feats.mean(axis=0)) / feats.std(axis=0, ddof=0)
+    def test_hand_checked_single_metric(self):
+        # features [1,2,3] (one metric): median=2, MAD=1 → M = 0.6745*[-1,0,1]
+        # d(i,j)=|Mi-Mj|; S = 1/(1 + d/n_metrics), n_metrics=1
+        feats = np.array([[1.0], [2.0], [3.0]])
         msn = build_msn(feats)
-        for i in range(6):
-            for j in range(6):
-                if i == j:
-                    continue
-                expected = sp_stats.pearsonr(z[i], z[j]).statistic
-                assert msn[i, j] == pytest.approx(expected, abs=1e-12)
+        assert msn[0, 1] == pytest.approx(1.0 / (1.0 + _C))
+        assert msn[0, 2] == pytest.approx(1.0 / (1.0 + 2 * _C))
+        assert msn[1, 2] == pytest.approx(1.0 / (1.0 + _C))
 
-    def test_identical_regions_correlate_one(self):
-        feats = np.array(
-            [
-                [1.0, 2.0, 3.0, 4.0, 5.0],
-                [1.0, 2.0, 3.0, 4.0, 5.0],  # identical to region 0
-                [5.0, 1.0, 4.0, 2.0, 3.0],
-            ]
-        )
+    def test_identical_regions_similarity_one(self):
+        # regions 0 and 1 identical; ≥4 regions so MAD > 0
+        feats = np.array([[1.0, 2.0], [1.0, 2.0], [5.0, 8.0], [9.0, 3.0]])
         msn = build_msn(feats)
-        assert msn[0, 1] == pytest.approx(1.0, abs=1e-12)
+        assert msn[0, 1] == pytest.approx(1.0)
 
     def test_all_nan_region_raises(self):
         feats = np.ones((4, 5))
@@ -70,12 +65,13 @@ class TestBuildMSN:
         with pytest.raises(MSNInputError, match="all-NaN"):
             build_msn(feats)
 
-    def test_constant_metric_raises(self):
+    def test_constant_metric_is_tolerated(self):
+        # a metric constant across regions (MAD=0) contributes 0, does not crash
         rng = np.random.default_rng(3)
         feats = rng.normal(size=(5, 5))
-        feats[:, 1] = 7.0  # constant metric → zero variance
-        with pytest.raises(MSNInputError, match="constant"):
-            build_msn(feats)
+        feats[:, 1] = 7.0
+        msn = build_msn(feats)
+        assert np.isfinite(msn[~np.eye(5, dtype=bool)]).all()
 
     def test_determinism(self):
         rng = np.random.default_rng(4)
@@ -91,42 +87,32 @@ class TestBuildMSN:
 class TestNodeStrength:
     @pytest.fixture
     def toy(self) -> np.ndarray:
-        m = np.array(
+        return np.array(
             [
-                [np.nan, 0.4, -0.2],
+                [np.nan, 0.4, 0.2],
                 [0.4, np.nan, 0.6],
-                [-0.2, 0.6, np.nan],
+                [0.2, 0.6, np.nan],
             ]
         )
-        return m
 
-    def test_signed(self, toy):
-        s = node_strength(toy, sign="signed")
-        # region0: (0.4 + (-0.2))/2 = 0.1 ; region1: (0.5 + 0)/2 = 0.25 ; region2: (0.6 + (-0.2))/2 = 0.2
-        np.testing.assert_allclose(s, [0.1, 0.25, 0.2])
+    def test_sum(self, toy):
+        s = node_strength(toy, agg="sum")
+        np.testing.assert_allclose(s, [0.6, 1.0, 0.8])
 
-    def test_positive(self, toy):
-        s = node_strength(toy, sign="positive")
-        np.testing.assert_allclose(s, [0.4, 0.5, 0.6])
-
-    def test_absolute(self, toy):
-        s = node_strength(toy, sign="absolute")
+    def test_mean(self, toy):
+        s = node_strength(toy, agg="mean")
         np.testing.assert_allclose(s, [0.3, 0.5, 0.4])
 
+    def test_default_is_sum(self, toy):
+        np.testing.assert_allclose(node_strength(toy), [0.6, 1.0, 0.8])
+
     def test_batched_shape(self):
-        m = np.stack([np.array([[np.nan, 0.4, -0.2], [0.4, np.nan, 0.6], [-0.2, 0.6, np.nan]])] * 3)
-        s = node_strength(m)
-        assert s.shape == (3, 3)
+        m = np.stack([np.array([[np.nan, 0.4, 0.2], [0.4, np.nan, 0.6], [0.2, 0.6, np.nan]])] * 3)
+        assert node_strength(m).shape == (3, 3)
 
-    def test_no_negative_edges_contributes_zero(self):
-        m = np.array([[np.nan, 0.2, 0.4], [0.2, np.nan, 0.6], [0.4, 0.6, np.nan]])
-        s = node_strength(m, sign="signed")
-        # all positive → signed = pos_mean/2
-        np.testing.assert_allclose(s, [0.3 / 2, 0.4 / 2, 0.5 / 2])
-
-    def test_invalid_sign_raises(self):
-        with pytest.raises(ValueError, match="sign"):
-            node_strength(np.zeros((3, 3)), sign="bogus")
+    def test_invalid_agg_raises(self):
+        with pytest.raises(ValueError, match="agg"):
+            node_strength(np.zeros((3, 3)), agg="bogus")
 
 
 # ---------------------------------------------------------------------------

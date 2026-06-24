@@ -4,23 +4,30 @@ Phase 2, Tasks T2.1–T2.2.
 
 The Morphometric Similarity Network (MSN) for a subject is built from a
 ``(n_regions, n_metrics)`` feature matrix (the locked default is 5 metrics:
-SurfArea, GrayVol, ThickAvg, MeanCurv, GausCurv).  Each metric is z-scored
-*across regions within the subject* and the inter-regional similarity is the
-Pearson correlation between the two regions' standardized feature vectors.
-Node strength summarizes each region's connectivity profile (signed mean by
-default).
+SurfArea, GrayVol, ThickAvg, MeanCurv, GausCurv), following Tomasella et al.:
+
+1. Each metric is normalized *across regions within the subject* with a robust
+   **modified z-score**: ``M = 0.6745·(x − median) / MAD``.
+2. The morphometric **distance** between two regions is the multivariate
+   Euclidean distance over the normalized metrics: ``d = sqrt(Σ (xᵢ − yᵢ)²)``.
+3. Distance is converted to a **similarity** weight, normalized by the number of
+   features: ``S = 1 / (1 + d / n_metrics)`` — bounded (0, 1], 1 at d=0.
+4. **Node strength** is the sum of a region's edge weights to all other regions.
 """
 
 from __future__ import annotations
 
 import logging
-import warnings
 from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
+from scipy.spatial.distance import cdist
 
 from msnpip.errors import MSNInputError
+
+# Modified-z-score constant (0.6745 = 0.75 quantile of the standard normal).
+_MAD_CONSTANT = 0.6745
 
 logger = logging.getLogger("msnpip.msn.construct")
 
@@ -39,11 +46,27 @@ _HEMI_FOR: dict[str, tuple[str, ...]] = {
 # ---------------------------------------------------------------------------
 
 
-def _build_one(features: np.ndarray) -> np.ndarray:
-    """Build one subject's region×region MSN from a (n_regions, n_metrics) matrix.
+def _modified_zscore(features: np.ndarray) -> np.ndarray:
+    """Robust within-subject normalization per metric: 0.6745·(x − median)/MAD.
 
-    Steps: z-score each metric across regions, then Pearson-correlate regions
-    across the standardized metric axis.  The diagonal is set to NaN.
+    Computed down regions (axis 0) for each metric column.  Columns with zero
+    MAD (a metric constant across regions) contribute 0 (no discriminative
+    information) rather than producing inf/NaN.
+    """
+    median = np.nanmedian(features, axis=0)
+    mad = np.nanmedian(np.abs(features - median), axis=0)
+    out = np.zeros_like(features, dtype=float)
+    nonzero = mad > 0
+    out[:, nonzero] = _MAD_CONSTANT * (features[:, nonzero] - median[nonzero]) / mad[nonzero]
+    return out
+
+
+def _build_one(features: np.ndarray) -> np.ndarray:
+    """Build one subject's region×region morphometric similarity matrix.
+
+    Modified-z-score each metric across regions, take the multivariate Euclidean
+    distance between regions, then convert to similarity ``1/(1 + d/n_metrics)``.
+    The diagonal is set to NaN (a region has no self-edge).
     """
     all_nan = np.all(np.isnan(features), axis=1)
     if all_nan.any():
@@ -54,23 +77,13 @@ def _build_one(features: np.ndarray) -> np.ndarray:
             "(see compute_strength_maps drop_threshold)."
         )
 
-    mean = np.nanmean(features, axis=0)
-    std = np.nanstd(features, axis=0, ddof=0)
-    if np.any(std == 0):
-        bad = np.flatnonzero(std == 0).tolist()
-        raise MSNInputError(
-            f"Metric column(s) {bad} are constant across regions (zero variance); "
-            "morphometric similarity is undefined."
-        )
-
-    z = (features - mean) / std
-
-    # Pearson correlation between regions across the standardized metric axis.
-    msn = np.corrcoef(z)
-    # corrcoef collapses to a scalar for a single region — normalize shape.
-    msn = np.atleast_2d(msn)
-    np.fill_diagonal(msn, np.nan)
-    return msn
+    n_metrics = features.shape[1]
+    normalized = _modified_zscore(features)
+    distance = cdist(normalized, normalized, metric="euclidean")
+    similarity = 1.0 / (1.0 + distance / float(n_metrics))
+    similarity = np.atleast_2d(similarity)
+    np.fill_diagonal(similarity, np.nan)
+    return similarity
 
 
 def build_msn(subject_features: np.ndarray) -> np.ndarray:
@@ -114,50 +127,34 @@ def build_msn(subject_features: np.ndarray) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 
-def node_strength(msn: np.ndarray, *, sign: str = "signed") -> np.ndarray:
-    """Compute per-region node strength from MSN matrices.
+def node_strength(msn: np.ndarray, *, agg: str = "sum") -> np.ndarray:
+    """Compute per-region node strength from similarity matrices.
+
+    Node strength is the aggregate of a region's edge weights to all other
+    regions (the NaN diagonal is excluded).
 
     Parameters
     ----------
     msn
         ``(n_subjects, n_regions, n_regions)`` (or a single 2-D matrix) with a
         NaN diagonal.
-    sign
-        - ``"signed"`` (default): ``(pos_mean + neg_mean) / 2`` — the mean of
-          positive edges and the mean of negative edges, averaged.  A region
-          with no positive (or negative) edges contributes 0 for that side.
-        - ``"positive"``: mean of positive edges only.
-        - ``"absolute"``: mean of absolute edge weights.
+    agg
+        ``"sum"`` (default, per Tomasella et al.) or ``"mean"`` of the edges.
 
     Returns
     -------
     np.ndarray
         ``(n_subjects, n_regions)`` node strengths (or 1-D for a single matrix).
     """
-    if sign not in ("signed", "positive", "absolute"):
-        raise ValueError(f"sign must be 'signed'/'positive'/'absolute', got {sign!r}")
+    if agg not in ("sum", "mean"):
+        raise ValueError(f"agg must be 'sum'/'mean', got {agg!r}")
 
     arr = np.asarray(msn, dtype=float)
     single = arr.ndim == 2
     if single:
         arr = arr[None]
 
-    with warnings.catch_warnings():
-        # nanmean over an all-NaN slice (region with no pos/neg edges) → warning;
-        # we deliberately map that to 0 below.
-        warnings.simplefilter("ignore", category=RuntimeWarning)
-        if sign == "signed":
-            pos = np.where(arr > 0, arr, np.nan)
-            neg = np.where(arr < 0, arr, np.nan)
-            pos_mean = np.nan_to_num(np.nanmean(pos, axis=2), nan=0.0)
-            neg_mean = np.nan_to_num(np.nanmean(neg, axis=2), nan=0.0)
-            out = (pos_mean + neg_mean) / 2.0
-        elif sign == "positive":
-            pos = np.where(arr > 0, arr, np.nan)
-            out = np.nan_to_num(np.nanmean(pos, axis=2), nan=0.0)
-        else:  # absolute
-            out = np.nanmean(np.abs(arr), axis=2)
-
+    out = np.nansum(arr, axis=2) if agg == "sum" else np.nanmean(arr, axis=2)
     return out[0] if single else out
 
 
@@ -184,7 +181,7 @@ class StrengthMaps:
     global_strength: np.ndarray  # (n_subjects,) — mean over regions
     hemisphere: str = "both"
     regions: str = "cort"
-    sign: str = "signed"
+    agg: str = "sum"
     dropped_subjects: list[str] = field(default_factory=list)
 
     @property
@@ -220,7 +217,7 @@ def compute_strength_maps(
     hemisphere: str = "both",
     regions: str = "cort",
     drop_threshold: float = 0.0,
-    sign: str = "signed",
+    agg: str = "sum",
     metrics: tuple[str, ...] = DEFAULT_METRICS,
 ) -> StrengthMaps:
     """Build MSNs and node-strength maps for a cohort.
@@ -250,8 +247,8 @@ def compute_strength_maps(
         A subject is dropped if its proportion of missing (NaN) selected
         feature values is **greater than** this threshold.  The default
         ``0.0`` drops any subject with one or more missing features.
-    sign
-        Node-strength sign policy (see :func:`node_strength`).
+    agg
+        Node-strength aggregation (see :func:`node_strength`); ``"sum"`` default.
     metrics
         Metric names and the order of the metric axis.
 
@@ -339,7 +336,7 @@ def compute_strength_maps(
     kept_tensor = tensor[kept_idx]
 
     matrix = build_msn(kept_tensor)
-    strength = node_strength(matrix, sign=sign)
+    strength = node_strength(matrix, agg=agg)
     global_strength = np.nanmean(strength, axis=1)
 
     logger.info(
@@ -361,6 +358,6 @@ def compute_strength_maps(
         global_strength=global_strength,
         hemisphere=hemisphere,
         regions=regions,
-        sign=sign,
+        agg=agg,
         dropped_subjects=dropped_subjects,
     )
