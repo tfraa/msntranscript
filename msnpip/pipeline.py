@@ -2,16 +2,26 @@
 Pipeline stage machine (LOAD → VALIDATE → MSN → CONTRAST → … → REPORT).
 Phase 5, Task T5.2 / T5.3.
 
-The pipeline wires the per-phase building blocks into the output tree (spec §6).
-It is a linear stage machine: each stage reads from an in-memory context and
-writes its artifacts to disk, so a run can be resumed from a later stage given
-the persisted outputs (``start_stage`` / ``stop_stage``).
+Produces a deliberately small, curated output set (issue 7):
+
+    <output>/
+      merged_dataset.csv
+      strength_maps.csv                     per-subject node strength
+      mean_msn_per_group.csv                group-mean node strength per region
+      case_control_difference_maps.csv      per-contrast regional contrast map
+      <contrast>_pls.csv                    per-contrast PLS gene results
+      <contrast>_enrichment.csv             per-contrast × geneset enrichment
+      plots/                                violin, scatter, surfaces, engine plots
+
+The engine writes its own verbose TSV/PNG bundle into a temporary ``.engine``
+staging folder; we extract only the curated CSVs and the plots, then discard it.
 """
 
 from __future__ import annotations
 
-import contextlib
 import logging
+import re
+import shutil
 from dataclasses import replace
 from pathlib import Path
 
@@ -30,13 +40,10 @@ from msnpip.io.readers import (
     read_table,
 )
 from msnpip.io.schema import detect_id_column, detect_schema, validate_schema
-from msnpip.io.writers import OutputManager
 from msnpip.logging_ import phase_banner
 from msnpip.msn.construct import StrengthMaps, compute_strength_maps
-from msnpip.report.builder import ReportBuilder
 from msnpip.stats.correlation import correlate_strength_with_demographic
 from msnpip.stats.glm import normalize_group_value, regional_group_contrast
-from msnpip.stats.sensitivity import covariate_exclusion_contrast
 
 logger = logging.getLogger("msnpip.pipeline")
 
@@ -62,7 +69,9 @@ class Pipeline:
 
     def __init__(self, cfg: PipelineConfig) -> None:
         self.cfg = cfg
-        self.out = OutputManager(cfg.output, engine_commit=engine_commit(), seed=cfg.engine.seed)
+        self.out_dir = Path(cfg.output)
+        self.out_dir.mkdir(parents=True, exist_ok=True)
+        self.plots_dir = self.out_dir / "plots"
         self.ctx: dict = {}
 
     # ------------------------------------------------------------------
@@ -88,6 +97,11 @@ class Pipeline:
 
         return self.ctx
 
+    def _csv(self, df: pd.DataFrame, name: str) -> Path:
+        path = self.out_dir / f"{name}.csv"
+        df.to_csv(path, index=False)
+        return path
+
     # ------------------------------------------------------------------
     # Stages
     # ------------------------------------------------------------------
@@ -95,7 +109,6 @@ class Pipeline:
         io = self.cfg.io
         if io.dataframe is not None:
             df = read_table(io.dataframe, sep=io.sep, decimal=io.decimal, sheet=io.sheet)
-            report = {"mode": "dataframe", "source": str(io.dataframe), "n_subjects": len(df)}
         else:
             kind = detect_input_kind(io.freesurfer_dir)
             if kind == "feature_tables":
@@ -104,11 +117,8 @@ class Pipeline:
                 feats = read_freesurfer_subjects(
                     io.freesurfer_dir, expected_regions=self._atlas_regions()
                 )
-            report = {"mode": kind, "n_features": len(feats)}
-
             if io.demographics is not None:
                 dem = read_table(io.demographics, sep=io.sep, decimal=io.decimal, sheet=io.sheet)
-                # Detect the id column in each source independently (names may differ).
                 dem_id = detect_id_column(dem, io.id_col)
                 df = merge_features_demographics(
                     feats,
@@ -117,17 +127,11 @@ class Pipeline:
                     dem_id_col=dem_id,
                     min_match_rate=io.min_id_match_rate,
                 )
-                # Drop a duplicate demographics id column from the suffixed merge.
                 df = df.drop(columns=[c for c in df.columns if c.endswith("_dem")], errors="ignore")
-                report.update(n_demographics=len(dem), dem_id_col=dem_id, n_merged=len(df))
             else:
-                # Feature tables can already carry Group/Diagnosis/tiv etc.
                 df = feats
-                report["n_merged"] = len(df)
         self.ctx["df"] = df
-        inputs = self.out.subdir("00_inputs")
-        inputs.write_table(df, "merged_data")
-        inputs.write_json(report, "merge_report")
+        self._csv(df, "merged_dataset")
         logger.info("LOAD: %d subjects, %d columns", len(df), df.shape[1])
 
     def _stage_validate(self) -> None:
@@ -144,18 +148,13 @@ class Pipeline:
             overrides["id_col"] = self.cfg.io.id_col
         if overrides:
             schema = replace(schema, **overrides)
-        predictors = tuple(self.cfg.glm.predictors)
         validate_schema(
             df,
             schema,
-            predictor_cols=predictors,
+            predictor_cols=tuple(self.cfg.glm.predictors),
             correlation_cols=tuple(self.cfg.correlation.variables),
         )
         self.ctx["schema"] = schema
-        inputs = self.out.subdir("00_inputs")
-        inputs.write_json(_schema_to_dict(schema), "schema")
-        _write_yaml(self.cfg.output / "00_inputs" / "resolved_config.yaml", self.cfg.to_dict())
-        self.out.record(self.cfg.output / "00_inputs" / "resolved_config.yaml")
 
     def _stage_msn(self) -> None:
         df, schema = self.ctx["df"], self.ctx["schema"]
@@ -169,27 +168,20 @@ class Pipeline:
             metrics=tuple(self.cfg.msn.features),
         )
         self.ctx["strength_maps"] = sm
-        msn_dir = self.out.subdir("01_msn")
+
         strength_df = pd.DataFrame(sm.strength, columns=sm.region_labels)
         strength_df.insert(0, "subject_id", sm.subject_ids)
-        msn_dir.write_table(strength_df, "strength_maps")
-        msn_dir.write_table(
-            pd.DataFrame({"subject_id": sm.subject_ids, "global_strength": sm.global_strength}),
-            "global_strength",
-        )
-        msn_dir.write_json({"dropped_subjects": sm.dropped_subjects}, "dropped_subjects")
-        if self.cfg.save_all:
-            per = msn_dir.subdir("per_subject_msn")
-            for sid, mat in zip(sm.subject_ids, sm.matrix):
-                per.write_array(mat, str(sid))
+        self._csv(strength_df, "strength_maps")
+        self._csv(self._mean_strength_per_group(sm), "mean_msn_per_group")
+        if sm.dropped_subjects:
+            logger.info("MSN: dropped %d incomplete subject(s).", len(sm.dropped_subjects))
 
     def _stage_contrast(self) -> None:
         sm, df, schema = self.ctx["strength_maps"], self.ctx["df"], self.ctx["schema"]
-        pairs = self._contrast_pairs()
         covariates = tuple(self.cfg.glm.predictors)
-        stats_dir = self.out.subdir("02_stats")
         contrasts = []
-        for case, control in pairs:
+        diff = pd.DataFrame({"region": sm.region_labels})
+        for case, control in self._contrast_pairs():
             work_df, cc, kk = self._resolve_contrast_df(df, schema, case, control)
             res = regional_group_contrast(
                 sm,
@@ -201,74 +193,44 @@ class Pipeline:
                 stat=self.cfg.glm.contrast_stat,
             )
             tag = _tag(case, control)
-            tbl = pd.DataFrame({"region": res.region_labels, res.stat_type: res.regional_stat})
-            stats_dir.subdir("contrasts").write_table(tbl, f"{tag}_contrast")
+            diff[f"{tag}_{res.stat_type}"] = res.regional_stat
             contrasts.append((tag, res, cc, kk))
+        self._csv(diff, "case_control_difference_maps")
         self.ctx["contrasts"] = contrasts
 
     def _stage_correlation(self) -> None:
+        # Correlation results feed the scatter plots only (no separate CSV).
         variables = self.cfg.correlation.variables
         if not variables:
-            logger.info("CORRELATION: no variables requested — skipping.")
             return
         sm, df, schema = self.ctx["strength_maps"], self.ctx["df"], self.ctx["schema"]
-        corr_dir = self.out.subdir("02_stats").subdir("correlation")
         results = []
         for var in variables:
-            res = correlate_strength_with_demographic(
-                sm,
-                df,
-                schema,
-                variable=var,
-                scope=self.cfg.correlation.scope,
-                within_group=self.cfg.correlation.within_group,
-                method=self.cfg.correlation.method,
+            results.append(
+                (
+                    var,
+                    correlate_strength_with_demographic(
+                        sm,
+                        df,
+                        schema,
+                        variable=var,
+                        scope=self.cfg.correlation.scope,
+                        within_group=self.cfg.correlation.within_group,
+                        method=self.cfg.correlation.method,
+                    ),
+                )
             )
-            cols = {"r": np.atleast_1d(res.r), "p": np.atleast_1d(res.p)}
-            if res.fdr is not None:
-                cols["fdr"] = res.fdr
-            tbl = pd.DataFrame(cols)
-            if res.region_labels is not None:
-                tbl.insert(0, "region", res.region_labels)
-            corr_dir.write_table(tbl, f"{var}__{res.scope}")
-            results.append((var, res))
         self.ctx["correlations"] = results
 
     def _stage_sensitivity(self) -> None:
-        drops = self.cfg.glm.exclude_covariates
-        if not drops or not self.cfg.glm.predictors:
-            logger.info("SENSITIVITY: nothing to exclude — skipping.")
-            return
-        sm, df, schema = self.ctx["strength_maps"], self.ctx["df"], self.ctx["schema"]
-        sens_dir = self.out.subdir("02_stats").subdir("sensitivity")
-        results = []
-        for tag, _res, cc, kk in self.ctx.get("contrasts", []):
-            work_df, _, _ = self._resolve_contrast_df(df, schema, cc, kk)
-            for drop in drops:
-                sens = covariate_exclusion_contrast(
-                    sm,
-                    work_df,
-                    schema,
-                    case_label=cc,
-                    control_label=kk,
-                    full_covariates=self.cfg.glm.predictors,
-                    drop=drop,
-                    stat=self.cfg.glm.contrast_stat,
-                )
-                tbl = pd.DataFrame(
-                    {
-                        "region": sens.region_labels,
-                        "full": sens.full.regional_stat,
-                        "reduced": sens.reduced.regional_stat,
-                    }
-                )
-                sens_dir.write_table(tbl, f"{tag}__drop_{drop}")
-                results.append((tag, drop, sens))
-        self.ctx["sensitivity"] = results
+        # Covariate-exclusion sensitivity is not part of the curated output set.
+        logger.info("SENSITIVITY: skipped (not in curated outputs).")
 
     def _stage_transcriptomics(self) -> None:
         cfg = self.cfg
         hemis = ["left", "both"] if cfg.engine.compare_hemispheres else [cfg.engine.hemisphere]
+        staging = self.out_dir / ".engine"
+        self.plots_dir.mkdir(parents=True, exist_ok=True)
         tx = []
         for tag, res, _cc, _kk in self.ctx["contrasts"]:
             for hemi in hemis:
@@ -279,12 +241,13 @@ class Pipeline:
                     hemisphere=hemi,
                     regions=cfg.engine.regions,
                 )
-                base = cfg.output / "03_transcriptomics"
-                if cfg.engine.compare_hemispheres:
-                    base = base / f"hemi-{hemi}"
                 eng_cfg = replace(cfg.engine, hemisphere=hemi)
-                results = engine_mod.run_transcriptomics(vec, labels_df, eng_cfg, base, tag)
-                tx.append((tag, hemi, results, vec, labels_df))
+                out_tag = f"{tag}_hemi-{hemi}" if cfg.engine.compare_hemispheres else tag
+                results = engine_mod.run_transcriptomics(vec, labels_df, eng_cfg, staging, out_tag)
+                self._curate_engine_bundle(out_tag, staging / out_tag)
+                tx.append((tag, hemi, results))
+        if staging.exists():
+            shutil.rmtree(staging, ignore_errors=True)
         self.ctx["transcriptomics"] = tx
 
     def _stage_figures(self) -> None:
@@ -299,24 +262,18 @@ class Pipeline:
         from msnpip.viz.surface_extra import plot_surface_with_dorsal
 
         sm, df, schema = self.ctx["strength_maps"], self.ctx["df"], self.ctx["schema"]
-        fig_dir = self.cfg.output / "04_figures"
-        for sub in ("distributions", "surface", "correlation"):
-            (fig_dir / sub).mkdir(parents=True, exist_ok=True)
-        written: list[Path] = []
+        self.plots_dir.mkdir(parents=True, exist_ok=True)
 
         for tag, res, cc, kk in self.ctx.get("contrasts", []):
             work_df, _, _ = self._resolve_contrast_df(df, schema, cc, kk)
+            case_lbl, ctrl_lbl = tag.split("_vs_", 1)
             try:
                 fig = plot_strength_violin(sm, work_df, schema, group_labels=[cc, kk])
-                p = fig_dir / "distributions" / f"{tag}_violin.png"
-                fig.savefig(p)
-                written.append(p)
+                fig.savefig(self.plots_dir / f"{tag}_violin.png")
             except Exception as exc:
                 logger.warning("FIGURES: violin for %s failed: %s", tag, exc)
-            # Surface maps use BOTH hemispheres (the contrast map is whole-cortex),
-            # rendered on both an inflated and a pial surface with clear titles.
+            # Surface maps: both hemispheres, on inflated AND pial surfaces.
             try:
-                case_lbl, ctrl_lbl = tag.split("_vs_", 1)
                 vec, labels_df = align_strength_to_atlas(
                     res.regional_stat,
                     res.region_labels,
@@ -331,17 +288,15 @@ class Pipeline:
                         f"MSN node-strength group contrast ({res.stat_type}) · "
                         f"{self.cfg.engine.atlas} atlas · {mesh_kind} surface · both hemispheres"
                     )
-                    p = plot_surface_with_dorsal(
+                    plot_surface_with_dorsal(
                         table,
                         atlas_id=self.cfg.engine.atlas,
                         value_column=res.stat_type,
                         title=title,
-                        output_path=fig_dir / "surface" / f"{tag}_surface_{mesh_kind}.png",
+                        output_path=self.plots_dir / f"{tag}_surface_{mesh_kind}.png",
                         mesh_kind=mesh_kind,
                         subtitle=subtitle,
                     )
-                    if p:
-                        written.append(Path(p))
             except Exception as exc:
                 logger.warning("FIGURES: surface for %s failed: %s", tag, exc)
 
@@ -350,32 +305,71 @@ class Pipeline:
                 continue
             try:
                 fig = plot_demographic_correlation(res)
-                p = fig_dir / "correlation" / f"{var}_scatter.png"
-                fig.savefig(p)
-                written.append(p)
+                fig.savefig(self.plots_dir / f"{var}_scatter.png")
             except Exception as exc:
                 logger.warning("FIGURES: scatter for %s failed: %s", var, exc)
 
-        self.ctx["figures"] = written
-
     def _stage_report(self) -> None:
-        report = ReportBuilder(self.cfg.output, self.cfg)
-        pdf = report.build(self.ctx)
+        from msnpip.report.builder import ReportBuilder
+
+        produced = sorted(p.name for p in self.out_dir.glob("*.csv"))
+        n_plots = len(list(self.plots_dir.glob("*.png"))) if self.plots_dir.exists() else 0
+        pdf = ReportBuilder(self.out_dir, self.cfg).build(self.ctx)
         self.ctx["report"] = pdf
-        # Record every artifact under the tree (engine bundles + figures) for the manifest.
-        for f in sorted(self.cfg.output.rglob("*")):
-            if (
-                f.is_file()
-                and f.name != "manifest.json"
-                and f.suffix.lower() not in (".pkl", ".pickle")
-            ):
-                with contextlib.suppress(ValueError):
-                    self.out.record(f)
-        self.out.finalize(self.cfg.to_dict())
+        logger.info(
+            "REPORT: %d CSV(s) + %d plot(s) + %s in %s",
+            len(produced),
+            n_plots,
+            pdf.name if pdf else "no report",
+            self.out_dir,
+        )
 
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
+    def _mean_strength_per_group(self, sm: StrengthMaps) -> pd.DataFrame:
+        df, schema = self.ctx["df"], self.ctx["schema"]
+        out = pd.DataFrame({"region": sm.region_labels})
+        gcol = schema.group_col
+        if gcol and gcol in df.columns:
+            aligned = df.set_index(df[schema.id_col].astype(str)).loc[sm.subject_ids]
+            groups = aligned[gcol].map(normalize_group_value).to_numpy()
+            for g in pd.unique(groups):
+                out[f"mean_strength_{g}"] = sm.strength[groups == g].mean(axis=0)
+        else:
+            out["mean_strength_all"] = sm.strength.mean(axis=0)
+        return out
+
+    def _curate_engine_bundle(self, tag: str, bundle_dir: Path) -> None:
+        """Extract curated PLS + enrichment CSVs and copy plots from a bundle."""
+        if not bundle_dir.exists():
+            return
+        # PLS gene-level results (one row block per component).
+        pls_frames = []
+        for f in sorted(bundle_dir.glob("pls/pls_component_*.tsv")):
+            comp = re.search(r"component_(\d+)", f.name)
+            tbl = pd.read_csv(f, sep="\t")
+            tbl.insert(0, "component", int(comp.group(1)) if comp else 0)
+            pls_frames.append(tbl)
+        if pls_frames:
+            self._csv(pd.concat(pls_frames, ignore_index=True), f"{tag}_pls")
+
+        # Enrichment results (ensemble/gsea/ora), tagged by method and geneset.
+        enr_frames = []
+        for f in sorted(bundle_dir.rglob("*_results*.tsv")):
+            core = f.stem[: -len("_results")] if f.stem.endswith("_results") else f.stem
+            method, _, geneset = core.partition("_")
+            tbl = pd.read_csv(f, sep="\t")
+            tbl.insert(0, "geneset", geneset)
+            tbl.insert(0, "enrichment", method)
+            enr_frames.append(tbl)
+        if enr_frames:
+            self._csv(pd.concat(enr_frames, ignore_index=True), f"{tag}_enrichment")
+
+        # Engine plots (PLS variance, enrichment dotplots, etc.).
+        for png in sorted(bundle_dir.rglob("*.png")):
+            shutil.copy(png, self.plots_dir / f"{tag}_{png.stem}.png")
+
     def _atlas_regions(self) -> list[str] | None:
         try:
             labels = engine_region_order(self.cfg.engine.atlas, "both", self.cfg.engine.regions)
@@ -412,22 +406,21 @@ class Pipeline:
 
     def _hydrate(self, start_index: int) -> None:
         """Load persisted state needed to resume at STAGES[start_index]."""
-        out = self.cfg.output
         if start_index > STAGES.index("LOAD"):
-            merged = out / "00_inputs" / "merged_data.csv"
+            merged = self.out_dir / "merged_dataset.csv"
             if merged.exists():
                 self.ctx["df"] = pd.read_csv(merged)
         if start_index > STAGES.index("VALIDATE") and "df" in self.ctx:
             schema = detect_schema(self.ctx["df"], expected_regions=self._atlas_regions())
             gcol = self.cfg.resolved_group_col()
-            if gcol and schema.group_col is None:
+            if gcol and gcol in self.ctx["df"].columns:
                 schema = replace(schema, group_col=gcol)
             self.ctx["schema"] = schema
         if start_index > STAGES.index("MSN"):
             self.ctx["strength_maps"] = self._load_strength_maps()
 
     def _load_strength_maps(self) -> StrengthMaps:
-        path = self.cfg.output / "01_msn" / "strength_maps.csv"
+        path = self.out_dir / "strength_maps.csv"
         if not path.exists():
             raise StageError("RESUME", f"Cannot resume: {path} missing.")
         df = pd.read_csv(path)
@@ -452,26 +445,3 @@ def run_pipeline(cfg: PipelineConfig, *, start_stage=None, stop_stage=None) -> d
     """Convenience entry point: validate then run."""
     cfg.validate()
     return Pipeline(cfg).run(start_stage=start_stage, stop_stage=stop_stage)
-
-
-def engine_commit() -> str:
-    return "e6a2c237fc74a0b2072a6d58efaf9d1c22cc08e1"
-
-
-def _schema_to_dict(schema) -> dict:
-    return {
-        "id_col": schema.id_col,
-        "group_col": schema.group_col,
-        "age_col": schema.age_col,
-        "sex_col": schema.sex_col,
-        "tiv_col": schema.tiv_col,
-        "site_cols": list(schema.site_cols),
-        "n_feature_cols": len(schema.feature_cols),
-    }
-
-
-def _write_yaml(path: Path, data: dict) -> None:
-    import yaml
-
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(yaml.safe_dump(data, sort_keys=False), encoding="utf-8")

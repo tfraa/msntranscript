@@ -1,4 +1,4 @@
-"""Integration test: full LOAD→REPORT on the synthetic cohort — T5.6.
+"""Integration test: full pipeline on the synthetic cohort — T5.6.
 
 The transcriptomics engine is monkeypatched (writes a fake bundle) so this runs
 fast in CI; atlas alignment and all msnpip stages run for real.
@@ -6,7 +6,6 @@ fast in CI; atlas alignment and all msnpip stages run for real.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import matplotlib
@@ -29,12 +28,18 @@ from tests.fixtures.synthetic import make_synthetic_cohort
 
 
 def _fake_run_transcriptomics(vec, labels_df, eng_cfg, base, tag):
-    """Write a minimal engine-like bundle and return a stand-in result dict."""
+    """Write a minimal engine-like bundle (pls gene table + enrichment + plot)."""
     results = {}
     for method in eng_cfg.methods:
         d = Path(base) / tag / method
         d.mkdir(parents=True, exist_ok=True)
-        (d / f"{method}_summary.tsv").write_text("gene\tweight\nGENE1\t0.12\n", encoding="utf-8")
+        if method == "pls":
+            (d / "pls_component_1.tsv").write_text(
+                "gene\tweight\tp\tfdr\nGENE1\t0.12\t0.01\t0.2\n", encoding="utf-8"
+            )
+            (d / "ensemble_lake_results.tsv").write_text(
+                "Term\tp_val\tfdr\nEx1\t0.02\t0.4\n", encoding="utf-8"
+            )
         fig = plt.figure(figsize=(3, 2))
         plt.plot([0, 1], [0, 1])
         fig.savefig(d / f"{method}_plot.png")
@@ -60,31 +65,31 @@ def full_cfg(tmp_path):
     return cfg, out
 
 
-def test_full_pipeline_builds_tree_and_report(full_cfg, monkeypatch):
+def test_full_pipeline_builds_curated_outputs(full_cfg, monkeypatch):
     cfg, out = full_cfg
     monkeypatch.setattr(pipeline_mod.engine_mod, "run_transcriptomics", _fake_run_transcriptomics)
 
     run_pipeline(cfg)
 
-    # Output tree
-    assert (out / "00_inputs" / "merged_data.csv").exists()
-    assert (out / "00_inputs" / "schema.json").exists()
-    assert (out / "00_inputs" / "resolved_config.yaml").exists()
-    assert (out / "01_msn" / "strength_maps.csv").exists()
-    assert (out / "01_msn" / "global_strength.csv").exists()
-    assert (out / "02_stats" / "contrasts" / "FTD_vs_HC_contrast.csv").exists()
-    assert (out / "02_stats" / "correlation" / "age__global.csv").exists()
-    assert (out / "02_stats" / "sensitivity" / "FTD_vs_HC__drop_age.csv").exists()
-    assert (out / "03_transcriptomics" / "FTD_vs_HC" / "pls" / "pls_plot.png").exists()
-    assert (out / "05_report" / "Report.pdf").exists()
-    assert (out / "05_report" / "run_log.txt").exists()
+    # Curated CSV set (issue 7)
+    assert (out / "merged_dataset.csv").exists()
+    assert (out / "strength_maps.csv").exists()
+    assert (out / "mean_msn_per_group.csv").exists()
+    assert (out / "case_control_difference_maps.csv").exists()
+    assert (out / "FTD_vs_HC_pls.csv").exists()
+    assert (out / "FTD_vs_HC_enrichment.csv").exists()
 
-    # Manifest provenance
-    manifest = json.loads((out / "manifest.json").read_text())
-    assert manifest["seed"] == 1234
-    assert manifest["engine_commit"].startswith("e6a2c237")
-    assert len(manifest["artifacts"]) > 5
-    assert (out / "05_report" / "Report.pdf").stat().st_size > 0
+    # Plots
+    assert (out / "plots" / "FTD_vs_HC_violin.png").exists()
+    assert (out / "plots" / "age_scatter.png").exists()
+
+    # Report (kept as an output; layout TBD)
+    assert (out / "report.pdf").exists()
+
+    # Verbose engine staging removed; no manifest / report / staged tree
+    assert not (out / ".engine").exists()
+    assert not (out / "manifest.json").exists()
+    assert not (out / "03_transcriptomics").exists()
 
 
 def test_no_pickle_anywhere(full_cfg, monkeypatch):

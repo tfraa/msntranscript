@@ -31,18 +31,20 @@ def df_cfg(tmp_path):
 def test_stop_at_msn_builds_strength(df_cfg):
     cfg, out = df_cfg
     run_pipeline(cfg, stop_stage="MSN")
-    assert (out / "00_inputs" / "merged_data.csv").exists()
-    assert (out / "01_msn" / "strength_maps.csv").exists()
-    # transcriptomics not reached
-    assert not (out / "03_transcriptomics").exists()
+    assert (out / "merged_dataset.csv").exists()
+    assert (out / "strength_maps.csv").exists()
+    assert (out / "mean_msn_per_group.csv").exists()
+    # contrast/transcriptomics not reached
+    assert not (out / "case_control_difference_maps.csv").exists()
 
 
-def test_stop_at_contrast_writes_contrast_table(df_cfg):
+def test_stop_at_contrast_writes_difference_maps(df_cfg):
     cfg, out = df_cfg
     run_pipeline(cfg, stop_stage="CONTRAST")
-    assert (out / "02_stats" / "contrasts" / "FTD_vs_HC_contrast.csv").exists()
-    df = pd.read_csv(out / "02_stats" / "contrasts" / "FTD_vs_HC_contrast.csv")
-    assert "region" in df.columns and "beta" in df.columns
+    path = out / "case_control_difference_maps.csv"
+    assert path.exists()
+    df = pd.read_csv(path)
+    assert "region" in df.columns and "FTD_vs_HC_beta" in df.columns
     assert len(df) == 68  # both-hemisphere MSN
 
 
@@ -52,4 +54,4 @@ def test_resume_from_contrast_hydrates(df_cfg):
     # New pipeline instance resumes using persisted strength_maps.csv.
     ctx = Pipeline(cfg).run(start_stage="CONTRAST", stop_stage="CONTRAST")
     assert "strength_maps" in ctx
-    assert (out / "02_stats" / "contrasts" / "FTD_vs_HC_contrast.csv").exists()
+    assert (out / "case_control_difference_maps.csv").exists()

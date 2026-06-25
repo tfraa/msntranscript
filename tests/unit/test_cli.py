@@ -95,8 +95,8 @@ class TestFullRun:
             ]
         )
         assert rc == 0
-        assert (out / "05_report" / "Report.pdf").exists()
-        assert (out / "manifest.json").exists()
+        assert (out / "merged_dataset.csv").exists()
+        assert (out / "strength_maps.csv").exists()
 
     def test_unknown_atlas_returns_1(self, tmp_path):
         rc = main(
