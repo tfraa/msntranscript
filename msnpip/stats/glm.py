@@ -48,6 +48,29 @@ def group_mask(series: pd.Series, label) -> pd.Series:
     return series.map(normalize_group_value) == normalize_group_value(label)
 
 
+def benjamini_hochberg(pvalues) -> np.ndarray:
+    """Benjamini-Hochberg FDR-adjusted p-values (q-values).
+
+    NaN inputs are ignored in the ranking and returned as NaN, so partially
+    estimable contrast maps still get a valid correction over their finite
+    entries.  Output q-values are clipped to ``[0, 1]`` and enforced monotone.
+    """
+    p = np.asarray(pvalues, dtype=float)
+    q = np.full(p.shape, np.nan)
+    finite = np.isfinite(p)
+    pv = p[finite]
+    m = pv.size
+    if m == 0:
+        return q
+    order = np.argsort(pv)
+    ranked = pv[order] * m / np.arange(1, m + 1)
+    ranked = np.minimum.accumulate(ranked[::-1])[::-1]
+    out = np.empty(m)
+    out[order] = np.clip(ranked, 0.0, 1.0)
+    q[finite] = out
+    return q
+
+
 # ---------------------------------------------------------------------------
 # T2.3 — build_design_matrix
 # ---------------------------------------------------------------------------
@@ -270,6 +293,33 @@ class GroupContrastResult:
     atlas: str = "dk"
     hemisphere: str = "left"
     regions: str = "cort"
+    # Full per-region group-effect statistics (always populated), so the report
+    # can highlight significant regions with beta + t + p + FDR regardless of
+    # which ``stat_type`` was selected for the exported contrast map.
+    beta: np.ndarray | None = None
+    tvalue: np.ndarray | None = None
+    pvalue: np.ndarray | None = None
+    pvalue_fdr: np.ndarray | None = None
+
+    def stats_table(self) -> pd.DataFrame:
+        """Per-region group-effect table (region, beta, t, p, fdr)."""
+        n = len(self.region_labels)
+        nan = np.full(n, np.nan)
+        return pd.DataFrame(
+            {
+                "region": list(self.region_labels),
+                "beta": self.beta if self.beta is not None else nan,
+                "t": self.tvalue if self.tvalue is not None else nan,
+                "p": self.pvalue if self.pvalue is not None else nan,
+                "fdr": self.pvalue_fdr if self.pvalue_fdr is not None else nan,
+            }
+        )
+
+    def significant_table(self, alpha: float = 0.05) -> pd.DataFrame:
+        """FDR-significant regions (``fdr < alpha``), sorted by ascending FDR."""
+        tbl = self.stats_table()
+        sig = tbl[tbl["fdr"] < alpha].copy()
+        return sig.sort_values(["fdr", "p"], kind="mergesort").reset_index(drop=True)
 
 
 def _cohen_d(case_vals: np.ndarray, control_vals: np.ndarray) -> float:
@@ -390,6 +440,20 @@ def regional_group_contrast(
     n_regions = strength.shape[1]
     regional_stat = np.full(n_regions, np.nan)
 
+    # Always fit the OLS group model per region to collect beta + t + p; this
+    # backs the report's significant-region highlights and the FDR correction,
+    # independent of which statistic is exported as the contrast map.
+    beta_arr = np.full(n_regions, np.nan)
+    t_arr = np.full(n_regions, np.nan)
+    p_arr = np.full(n_regions, np.nan)
+    gi = design.columns.get_loc(group_term)
+    for r in range(n_regions):
+        res = fit_ols(design, strength[:, r])
+        beta_arr[r] = res.params[gi]
+        t_arr[r] = res.tvalues[gi]
+        p_arr[r] = res.pvalues[gi]
+    fdr_arr = benjamini_hochberg(p_arr)
+
     if stat == "cohen_d":
         # Residualize out covariates (excluding group), then standardized diff.
         if covariates:
@@ -402,11 +466,10 @@ def regional_group_contrast(
             if cov_design is not None:
                 y = residualize(y, cov_design, add_intercept=False)
             regional_stat[r] = _cohen_d(y[case_mask], y[~case_mask])
+    elif stat == "beta":
+        regional_stat = beta_arr.copy()
     else:
-        gi = design.columns.get_loc(group_term)
-        for r in range(n_regions):
-            res = fit_ols(design, strength[:, r])
-            regional_stat[r] = res.params[gi] if stat == "beta" else res.tvalues[gi]
+        regional_stat = t_arr.copy()
 
     logger.info(
         "regional_group_contrast: stat=%s case=%d control=%d covariates=%s → %d regions",
@@ -428,4 +491,8 @@ def regional_group_contrast(
         atlas=strength_maps.atlas,
         hemisphere=strength_maps.hemisphere,
         regions=strength_maps.regions,
+        beta=beta_arr,
+        tvalue=t_arr,
+        pvalue=p_arr,
+        pvalue_fdr=fdr_arr,
     )

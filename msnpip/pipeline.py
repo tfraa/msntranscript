@@ -48,6 +48,10 @@ from msnpip.stats.glm import normalize_group_value, regional_group_contrast
 
 logger = logging.getLogger("msnpip.pipeline")
 
+# FDR threshold for flagging significant regions in the report (highlights +
+# significant-only surface maps). Matches the manuscript's FDR<0.05 convention.
+SIG_ALPHA = 0.05
+
 STAGES = [
     "LOAD",
     "VALIDATE",
@@ -254,7 +258,7 @@ class Pipeline:
 
         matplotlib.use("Agg")
         from msnpip.viz.distributions import plot_strength_violin
-        from msnpip.viz.regional import plot_contrast_bars, plot_msn_matrix
+        from msnpip.viz.regional import plot_contrast_bars, plot_msn_matrix, plot_strength_bars
         from msnpip.viz.scatter import plot_demographic_correlation
         from msnpip.viz.surface_extra import plot_surface_with_dorsal
 
@@ -308,6 +312,35 @@ class Pipeline:
                     )
             except Exception as exc:
                 logger.warning("FIGURES: surface for %s failed: %s", tag, exc)
+            # Significant-only surface: non-FDR-significant regions blanked (NaN →
+            # neutral) so only the regions that survive FDR<alpha carry colour.
+            try:
+                fdr = res.pvalue_fdr
+                if fdr is not None:
+                    masked = np.where(fdr < SIG_ALPHA, res.regional_stat, np.nan)
+                    if np.isfinite(masked).any():
+                        vec, labels_df = align_strength_to_atlas(
+                            masked,
+                            res.region_labels,
+                            atlas=self.cfg.engine.atlas,
+                            hemisphere="both",
+                            regions=self.cfg.engine.regions,
+                        )
+                        table = to_region_table(vec, labels_df, res.stat_type)
+                        plot_surface_with_dorsal(
+                            table,
+                            atlas_id=self.cfg.engine.atlas,
+                            value_column=res.stat_type,
+                            title=f"{case_lbl} vs {ctrl_lbl}: FDR-significant regions",
+                            output_path=self.plots_dir / f"{tag}_surface_significant.png",
+                            mesh_kind="inflated",
+                            subtitle=(
+                                f"node-strength {res.stat_type} · regions with FDR < {SIG_ALPHA} · "
+                                f"{self.cfg.engine.atlas} atlas · both hemispheres"
+                            ),
+                        )
+            except Exception as exc:
+                logger.warning("FIGURES: significant surface for %s failed: %s", tag, exc)
 
         for var, res in self.ctx.get("correlations", []):
             if res.scope != "global":
@@ -317,6 +350,47 @@ class Pipeline:
                 fig.savefig(self.plots_dir / f"{var}_scatter.png")
             except Exception as exc:
                 logger.warning("FIGURES: scatter for %s failed: %s", var, exc)
+
+        # Per-group mean node-strength maps: brain surface (viridis) + ranked bars.
+        for group, idx in self._group_indices(sm).items():
+            if idx.size == 0:
+                continue
+            mean_strength = sm.strength[idx].mean(axis=0)
+            try:
+                plot_strength_bars(
+                    mean_strength,
+                    sm.region_labels,
+                    title=f"Mean node strength — group {group}",
+                    subtitle=f"{self.cfg.engine.atlas} atlas · {idx.size} subjects",
+                    output_path=self.plots_dir / f"{group}_strength_bars.png",
+                )
+            except Exception as exc:
+                logger.warning("FIGURES: strength bars for group %s failed: %s", group, exc)
+            try:
+                vec, labels_df = align_strength_to_atlas(
+                    mean_strength,
+                    list(sm.region_labels),
+                    atlas=self.cfg.engine.atlas,
+                    hemisphere="both",
+                    regions=self.cfg.engine.regions,
+                )
+                table = to_region_table(vec, labels_df, "strength")
+                plot_surface_with_dorsal(
+                    table,
+                    atlas_id=self.cfg.engine.atlas,
+                    value_column="strength",
+                    title=f"Mean node strength — group {group}",
+                    output_path=self.plots_dir / f"{group}_strength_surface.png",
+                    mesh_kind="inflated",
+                    subtitle=(
+                        f"MSN node strength · {self.cfg.engine.atlas} atlas · "
+                        f"inflated surface · both hemispheres"
+                    ),
+                    diverging=False,
+                    cmap_name="viridis",
+                )
+            except Exception as exc:
+                logger.warning("FIGURES: strength surface for group %s failed: %s", group, exc)
 
         # Per-group mean similarity-matrix heatmaps (needs the per-subject matrices).
         if getattr(sm, "matrix", None) is not None and sm.matrix.ndim == 3 and sm.matrix.shape[2]:
@@ -384,6 +458,11 @@ class Pipeline:
             pls_frames.append(tbl)
         if pls_frames:
             self._csv(pd.concat(pls_frames, ignore_index=True), f"{tag}_pls")
+
+        # PLS component summary (explained variance, cumulative variance, p-value).
+        summary = bundle_dir / "pls" / "pls_summary.tsv"
+        if summary.exists():
+            self._csv(pd.read_csv(summary, sep="\t"), f"{tag}_pls_summary")
 
         # Correlation gene-level results (only when the corr method was run).
         corr_frames = [

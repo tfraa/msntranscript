@@ -40,6 +40,8 @@ def plot_surface_with_dorsal(
     views: tuple[str, ...] = ("lateral", "medial", "dorsal"),
     mesh_kind: str = "pial",
     subtitle: str | None = None,
+    diverging: bool = True,
+    cmap_name: str | None = None,
 ) -> Path | None:
     """Render a cortical map across the requested views and hemispheres.
 
@@ -61,6 +63,16 @@ def plot_surface_with_dorsal(
         ``"pial"`` (anatomical) or ``"inflated"`` (smoothed) surface.
     subtitle
         Optional second line (provenance: atlas, surface, measure).
+    diverging
+        ``True`` (default): symmetric diverging map centred at 0 (``RdBu_r``),
+        for signed contrast statistics.  ``False``: sequential map spanning the
+        data range (``viridis``), for non-negative quantities like node
+        strength.  Non-significant regions passed as NaN render at the diverging
+        centre colour (neutral white), which is how the significant-only map is
+        drawn.
+    cmap_name
+        Override the colormap name; defaults to ``RdBu_r`` (diverging) or
+        ``viridis`` (sequential).
 
     Returns
     -------
@@ -93,9 +105,20 @@ def plot_surface_with_dorsal(
     finite = finite[np.isfinite(finite)]
     if finite.size == 0:
         return None
-    vmax = float(np.max(np.abs(finite))) or 1.0
-    norm = mcolors.TwoSlopeNorm(vmin=-vmax, vcenter=0.0, vmax=vmax)
-    cmap = plt.get_cmap("RdBu_r")
+    if diverging:
+        vmax = float(np.max(np.abs(finite))) or 1.0
+        vmin = -vmax
+        norm = mcolors.TwoSlopeNorm(vmin=vmin, vcenter=0.0, vmax=vmax)
+        cbar_ticks = [vmin, 0.0, vmax]
+        cmap = plt.get_cmap(cmap_name or "RdBu_r")
+    else:
+        vmin = float(np.min(finite))
+        vmax = float(np.max(finite))
+        if vmax <= vmin:
+            vmax = vmin + 1.0
+        norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+        cbar_ticks = [vmin, (vmin + vmax) / 2.0, vmax]
+        cmap = plt.get_cmap(cmap_name or "viridis")
     present = [h for h in ("left", "right") if h in hemi_frames]
     hemi_index = {"left": 0, "right": 1}
 
@@ -169,7 +192,7 @@ def plot_surface_with_dorsal(
     mappable.set_array([])
     cbar_ax = fig.add_axes([0.37, 0.07, 0.26, 0.032])
     colorbar = fig.colorbar(mappable, cax=cbar_ax, orientation="horizontal")
-    colorbar.set_ticks([-vmax, 0.0, vmax])
+    colorbar.set_ticks(cbar_ticks)
     colorbar.set_label(value_column, fontsize=9.5)
 
     out = brain.save_figure(fig, Path(output_path))

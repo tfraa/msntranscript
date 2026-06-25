@@ -60,6 +60,57 @@ def plot_contrast_bars(
     return output_path
 
 
+def plot_strength_bars(
+    values,
+    region_labels,
+    *,
+    title: str,
+    output_path,
+    subtitle: str | None = None,
+    cmap: str = "viridis",
+):
+    """Horizontal bar chart of per-region mean node strength.
+
+    Bars are sorted by value and coloured by magnitude on a sequential
+    (``viridis``) colormap — a within-group view of which regions carry the
+    strongest morphometric similarity hubs.
+    """
+    configure_theme()
+    values = np.asarray(values, dtype=float)
+    labels = list(region_labels)
+    order = np.argsort(np.nan_to_num(values))
+    values, labels = values[order], [labels[i] for i in order]
+
+    finite = values[np.isfinite(values)]
+    vmin = float(finite.min()) if finite.size else 0.0
+    vmax = float(finite.max()) if finite.size else 1.0
+    norm = plt.Normalize(vmin=vmin, vmax=vmax if vmax > vmin else vmin + 1.0)
+    cmap_obj = plt.get_cmap(cmap)
+    colors = [cmap_obj(norm(v)) for v in np.nan_to_num(values, nan=vmin)]
+
+    height = max(3.0, 0.16 * len(labels) + 1.0)
+    fig, ax = plt.subplots(figsize=(7.0, height))
+    ax.barh(range(len(values)), values, color=colors, edgecolor="none")
+    ax.set_yticks(range(len(values)))
+    ax.set_yticklabels(labels, fontsize=6.5)
+    ax.set_xlabel("mean node strength")
+    ax.set_ylim(-1, len(values))
+    ax.set_title(title, fontsize=12, fontweight="bold", loc="left")
+    if subtitle:
+        ax.text(
+            0.0, 1.005, subtitle, transform=ax.transAxes, fontsize=8.5, va="bottom", color="#555555"
+        )
+    sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap_obj)
+    sm.set_array([])
+    cbar = fig.colorbar(sm, ax=ax, fraction=0.046, pad=0.04)
+    cbar.set_label("mean node strength", fontsize=9)
+    fig.tight_layout()
+    fig.savefig(output_path)
+    plt.close(fig)
+    logger.info("plot_strength_bars: wrote %s (%d regions)", output_path, len(values))
+    return output_path
+
+
 def plot_msn_matrix(
     matrix,
     region_labels,
@@ -74,7 +125,7 @@ def plot_msn_matrix(
     labels = list(region_labels)
 
     fig, ax = plt.subplots(figsize=(6.5, 5.6))
-    im = ax.imshow(mat, cmap="magma", aspect="equal", interpolation="nearest")
+    im = ax.imshow(mat, cmap="viridis", aspect="equal", interpolation="nearest")
     # Sparse ticks to keep ~68 labels legible.
     step = max(1, len(labels) // 20)
     idx = list(range(0, len(labels), step))

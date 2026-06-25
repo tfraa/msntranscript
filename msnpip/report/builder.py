@@ -1,13 +1,30 @@
 """
-ReportBuilder — aggregate the run's plots into ``report.pdf``.
+ReportBuilder — assemble an ordered, self-describing ``report.pdf``.
 
-A deliberately simple report for now (cover page + one page per figure); the
-detailed structure will be defined later.  Lives next to the curated CSVs at the
-output root.
+The report walks the analysis in the order it is performed and interleaves
+written narrative, tables and figures:
+
+    1. Cover (run configuration + resolved spatial null)
+    2. Dataset description (cohort, groups, covariates, morphometric metrics)
+    3. MSN construction (method) + per-group mean similarity matrices (viridis)
+    4. Node strength per group (brain surfaces + ranked bars, viridis)
+    5. For each contrast:
+         a. Case-control difference (bar chart + brain surfaces)
+         b. Significant regions, in writing, with beta / t / p / FDR
+         c. Brain surfaces of the FDR-significant regions only
+         d. PLS parameters (explained variance, p-value per component)
+         e. Top 20 positive / 20 negative PLS genes
+         f. Enrichment (dotplots + table of the most significant terms)
+
+Figures are produced by the FIGURES stage and read back from ``plots/``;
+tables are read from the curated CSVs and from the in-memory contrast results.
+Every section is defensive: missing data degrades to a short note rather than
+failing the report.
 """
 
 from __future__ import annotations
 
+import contextlib
 import logging
 from pathlib import Path
 
@@ -17,32 +34,218 @@ matplotlib.use("Agg")
 
 import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
+import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
+
+from msnpip.stats.glm import normalize_group_value
 
 logger = logging.getLogger("msnpip.report.builder")
 
+# Page geometry (inches).
+A4_PORTRAIT = (8.27, 11.69)
+A4_LANDSCAPE = (11.69, 8.27)
+
+# Palette for headings / rules.
+_INK = "#1f2933"
+_MUTED = "#52606d"
+_ACCENT = "#2166ac"
+_RULE = "#cbd2d9"
+_HEAD_BG = "#2166ac"
+_ROW_ALT = "#eef2f7"
+
+SIG_ALPHA = 0.05
+
 
 class ReportBuilder:
-    """Assemble ``<output>/report.pdf`` from the plots in ``<output>/plots``."""
+    """Assemble ``<output>/report.pdf`` from curated CSVs, plots and ctx."""
 
     def __init__(self, output_dir, cfg) -> None:
         self.output_dir = Path(output_dir)
+        self.plots_dir = self.output_dir / "plots"
         self.cfg = cfg
 
+    # ------------------------------------------------------------------
     def build(self, ctx: dict) -> Path | None:
-        plots = sorted((self.output_dir / "plots").glob("*.png"))
         pdf_path = self.output_dir / "report.pdf"
         with PdfPages(pdf_path) as pdf:
-            self._cover_page(pdf, ctx, len(plots))
-            for png in plots:
-                self._image_page(pdf, png)
-        logger.info("REPORT: wrote %s (%d figure pages)", pdf_path, len(plots))
+            self._cover_page(pdf, ctx)
+            self._dataset_page(pdf, ctx)
+            self._msn_section(pdf, ctx)
+            self._strength_section(pdf, ctx)
+            for tag, res, cc, kk in ctx.get("contrasts", []):
+                self._contrast_section(pdf, ctx, tag, res, cc, kk)
+        logger.info("REPORT: wrote %s", pdf_path)
         return pdf_path
 
-    # ------------------------------------------------------------------
+    # ==================================================================
+    # Low-level page primitives
+    # ==================================================================
+    def _open_page(self, pdf, *, landscape: bool = False):
+        fig = plt.figure(figsize=A4_LANDSCAPE if landscape else A4_PORTRAIT)
+        fig.patch.set_facecolor("white")
+        return fig
+
+    def _close_page(self, pdf, fig) -> None:
+        pdf.savefig(fig)
+        plt.close(fig)
+
+    def _heading(self, fig, title: str, *, subtitle: str | None = None, kicker: str | None = None):
+        """Draw a section heading band; return the y below which content starts."""
+        if kicker:
+            fig.text(0.07, 0.955, kicker.upper(), fontsize=9, color=_ACCENT, fontweight="bold")
+        fig.text(0.07, 0.93, title, fontsize=18, color=_INK, fontweight="bold", va="top")
+        y = 0.90
+        if subtitle:
+            fig.text(0.07, 0.905, subtitle, fontsize=10.5, color=_MUTED, va="top")
+            y = 0.88
+        line = plt.Line2D([0.07, 0.93], [y, y], color=_RULE, linewidth=1.0)
+        fig.add_artist(line)
+        return y - 0.02
+
+    def _paragraphs(self, fig, blocks, *, top: float, x: float = 0.07, width: float = 0.86):
+        """Render a list of text blocks top-down.
+
+        Each block is ``(text, kind)`` where *kind* is ``"h"`` (sub-heading),
+        ``"p"`` (paragraph), ``"li"`` (bullet) or ``"sp"`` (spacer).
+        """
+        y = top
+        for text, kind in blocks:
+            if kind == "sp":
+                y -= 0.018
+                continue
+            if kind == "h":
+                fig.text(x, y, text, fontsize=12, color=_ACCENT, fontweight="bold", va="top")
+                y -= 0.034
+                continue
+            prefix = "•  " if kind == "li" else ""
+            indent = x + (0.025 if kind == "li" else 0.0)
+            wrapped = self._wrap(prefix + text, width=92 if kind != "li" else 88)
+            for i, line in enumerate(wrapped):
+                fig.text(
+                    indent if i == 0 else indent + 0.018,
+                    y,
+                    line,
+                    fontsize=10.5,
+                    color=_INK,
+                    va="top",
+                )
+                y -= 0.027
+            y -= 0.006
+        return y
+
+    @staticmethod
+    def _wrap(text: str, width: int = 92) -> list[str]:
+        import textwrap
+
+        return textwrap.wrap(text, width=width) or [""]
+
+    def _figure_page(
+        self, pdf, png: Path, *, title: str, caption: str | None = None, kicker: str | None = None
+    ) -> bool:
+        if not png or not Path(png).exists():
+            return False
+        try:
+            img = mpimg.imread(png)
+        except Exception as exc:  # pragma: no cover - corrupt image
+            logger.warning("REPORT: could not read %s: %s", png, exc)
+            return False
+        fig = self._open_page(pdf, landscape=True)
+        if kicker:
+            fig.text(0.05, 0.96, kicker.upper(), fontsize=9, color=_ACCENT, fontweight="bold")
+        fig.text(0.05, 0.93, title, fontsize=15, color=_INK, fontweight="bold", va="top")
+        ax = fig.add_axes([0.04, 0.07, 0.92, 0.80])
+        ax.axis("off")
+        ax.imshow(img)
+        if caption:
+            fig.text(0.05, 0.045, caption, fontsize=8.5, color=_MUTED, va="bottom")
+        self._close_page(pdf, fig)
+        return True
+
+    def _table_page(
+        self,
+        pdf,
+        *,
+        title: str,
+        df: pd.DataFrame,
+        kicker: str | None = None,
+        caption: str | None = None,
+        intro=None,
+        max_rows: int = 34,
+    ) -> None:
+        """Render a DataFrame as a styled table (paginated if long)."""
+        rows = df.reset_index(drop=True)
+        truncated = len(rows) > max_rows
+        if truncated:
+            rows = rows.head(max_rows)
+        fig = self._open_page(pdf, landscape=rows.shape[1] > 5)
+        top = self._heading(fig, title, kicker=kicker)
+        if intro:
+            top = self._paragraphs(fig, intro, top=top - 0.005)
+        cap = caption or ""
+        if truncated:
+            cap = (cap + "  " if cap else "") + f"(showing first {max_rows} of {len(df)} rows)"
+        self._draw_table(fig, rows, top=top - 0.01, caption=cap)
+        self._close_page(pdf, fig)
+
+    def _draw_table(self, fig, df: pd.DataFrame, *, top: float, caption: str = "") -> None:
+        ax = fig.add_axes([0.06, 0.07, 0.88, top - 0.08])
+        ax.axis("off")
+        cell_text = [
+            [self._fmt(c, v) for c, v in zip(df.columns, row)] for row in df.itertuples(index=False)
+        ]
+        if not cell_text:
+            ax.text(0.0, 1.0, "(no rows)", fontsize=10, color=_MUTED, va="top")
+            return
+        table = ax.table(
+            cellText=cell_text,
+            colLabels=[str(c) for c in df.columns],
+            cellLoc="center",
+            loc="upper center",
+        )
+        table.auto_set_font_size(False)
+        table.set_fontsize(8.5)
+        table.scale(1.0, 1.35)
+        ncol = df.shape[1]
+        for (r, _c), cell in table.get_celld().items():
+            cell.set_edgecolor("#ffffff")
+            cell.set_linewidth(1.0)
+            if r == 0:
+                cell.set_facecolor(_HEAD_BG)
+                cell.set_text_props(color="white", fontweight="bold")
+            else:
+                cell.set_facecolor(_ROW_ALT if r % 2 == 0 else "white")
+                cell.set_text_props(color=_INK)
+        with contextlib.suppress(Exception):  # matplotlib version drift
+            table.auto_set_column_width(col=list(range(ncol)))
+        if caption:
+            fig.text(0.06, 0.045, caption, fontsize=8.5, color=_MUTED, va="bottom")
+
+    @staticmethod
+    def _fmt(col, val) -> str:
+        col = str(col).lower()
+        if isinstance(val, str):
+            return val if len(val) <= 42 else val[:39] + "…"
+        try:
+            f = float(val)
+        except (TypeError, ValueError):
+            return str(val)
+        if f != f:  # NaN
+            return "—"
+        if col in ("p", "p_val", "pval", "fdr", "q", "pvalue") or "p_val" in col:
+            if f < 1e-3:
+                return f"{f:.1e}"
+            return f"{f:.4f}"
+        if col in ("component", "n", "matched_size", "rank"):
+            return f"{round(f)}"
+        if abs(f) >= 1000 or (f != 0 and abs(f) < 1e-3):
+            return f"{f:.2e}"
+        return f"{f:.3f}"
+
+    # ==================================================================
+    # Sections
+    # ==================================================================
     @staticmethod
     def _resolved_nulls(ctx: dict) -> str:
-        """Comma-joined set of null methods the engine actually used (provenance)."""
         used = set()
         for entry in ctx.get("transcriptomics", []):
             results = entry[2] if len(entry) > 2 else {}
@@ -52,83 +255,512 @@ class ReportBuilder:
                     used.add(str(nm))
         return ", ".join(sorted(used))
 
-    def _cover_page(self, pdf, ctx: dict, n_plots: int) -> None:
+    def _cover_page(self, pdf, ctx: dict) -> None:
         cfg = self.cfg
         sm = ctx.get("strength_maps")
         contrasts = [t for t, *_ in ctx.get("contrasts", [])]
-        resolved_nulls = self._resolved_nulls(ctx)
-        lines = [
-            ("msnpip 2.0 — analysis report", 18, "bold"),
-            ("", 10, "normal"),
+        fig = self._open_page(pdf)
+        fig.text(
+            0.07,
+            0.86,
+            "Morphometric Similarity Network",
+            fontsize=24,
+            color=_INK,
+            fontweight="bold",
+            va="top",
+        )
+        fig.text(
+            0.07,
+            0.815,
+            "imaging-transcriptomics analysis report",
+            fontsize=14,
+            color=_ACCENT,
+            va="top",
+        )
+        fig.add_artist(plt.Line2D([0.07, 0.93], [0.80, 0.80], color=_RULE, linewidth=1.2))
+
+        rows = [
             (
-                f"atlas: {cfg.engine.atlas}    engine hemisphere: {cfg.engine.hemisphere}"
-                f"    regions: {cfg.engine.regions}",
-                11,
-                "normal",
+                "Atlas",
+                f"{cfg.engine.atlas}  ·  regions: {cfg.engine.regions}  ·  "
+                f"engine hemisphere: {cfg.engine.hemisphere}",
             ),
+            ("MSN metrics", ", ".join(cfg.msn.features)),
+            ("Subjects analysed", str(sm.n_subjects if sm is not None else "n/a")),
+            ("Contrasts", ", ".join(contrasts) if contrasts else "none"),
+            ("Transcriptomics", ", ".join(cfg.engine.methods)),
+            ("Enrichment", ", ".join(cfg.engine.enrichment_methods)),
             (
-                f"methods: {', '.join(cfg.engine.methods)}    requested null: {cfg.engine.null_method}"
-                f"    permutations: {cfg.engine.n_permutations}",
-                11,
-                "normal",
+                "Spatial null (requested)",
+                f"{cfg.engine.null_method}  ·  {cfg.engine.n_permutations} permutations",
             ),
-            (f"resolved spatial null: {resolved_nulls or 'n/a'}", 11, "normal"),
-            (
-                f"enrichment: {', '.join(cfg.engine.enrichment_methods)}    seed: {cfg.engine.seed}",
-                11,
-                "normal",
-            ),
-            ("", 8, "normal"),
-            (f"subjects: {sm.n_subjects if sm is not None else 'n/a'}", 11, "normal"),
-            (f"contrasts: {', '.join(contrasts) if contrasts else 'none'}", 11, "normal"),
+            ("Spatial null (resolved)", self._resolved_nulls(ctx) or "n/a"),
+            ("Random seed", str(cfg.engine.seed)),
         ]
-        for var, res in ctx.get("correlations", []):
-            r = float(res.r[0]) if len(res.r) else float("nan")
-            p = float(res.p[0]) if len(res.p) else float("nan")
-            lines.append(
+        y = 0.74
+        for label, value in rows:
+            fig.text(0.07, y, label, fontsize=10.5, color=_MUTED, va="top")
+            for i, line in enumerate(self._wrap(value, width=58)):
+                fig.text(0.34, y - i * 0.026, line, fontsize=10.5, color=_INK, va="top")
+            y -= 0.026 * max(1, len(self._wrap(value, width=58))) + 0.012
+
+        fig.text(0.07, 0.06, "Generated by msnpip 2.0", fontsize=9, color=_MUTED, va="bottom")
+        self._close_page(pdf, fig)
+
+    def _group_counts(self, ctx: dict) -> dict:
+        df, schema = ctx.get("df"), ctx.get("schema")
+        sm = ctx.get("strength_maps")
+        if df is None or schema is None or sm is None:
+            return {}
+        gcol = getattr(schema, "group_col", None)
+        if not (gcol and gcol in df.columns):
+            return {"all": sm.n_subjects}
+        try:
+            aligned = df.set_index(df[schema.id_col].astype(str)).loc[sm.subject_ids]
+            groups = aligned[gcol].map(normalize_group_value)
+            return groups.value_counts().to_dict()
+        except Exception:
+            return {}
+
+    def _dataset_page(self, pdf, ctx: dict) -> None:
+        cfg = self.cfg
+        sm = ctx.get("strength_maps")
+        schema = ctx.get("schema")
+        counts = self._group_counts(ctx)
+        n_regions = len(sm.region_labels) if sm is not None else 0
+        gcol = getattr(schema, "group_col", None)
+
+        fig = self._open_page(pdf)
+        top = self._heading(
+            fig,
+            "Dataset",
+            kicker="Section 1",
+            subtitle="Cohort, grouping and morphometric features entering the analysis",
+        )
+        blocks: list = []
+        blocks.append(
+            (
+                f"The analysis included {sm.n_subjects if sm else 'n/a'} subjects with "
+                f"complete cortical morphometry across {n_regions} regions of the "
+                f"{cfg.engine.atlas} atlas (whole cortex, both hemispheres).",
+                "p",
+            )
+        )
+        if counts:
+            blocks.append(("Groups", "h"))
+            for g, n in counts.items():
+                flag = "  (small sample, n < 10 — interpret with caution)" if n < 10 else ""
+                blocks.append((f"{gcol or 'group'} = {g}: {n} subjects{flag}", "li"))
+        if sm is not None and getattr(sm, "dropped_subjects", None):
+            blocks.append(
                 (
-                    f"correlation (strength ~ {var}): r={r:.3f}, p={p:.3g}, n={res.n}"
-                    f" [{res.method}, {res.scope}]",
-                    11,
-                    "normal",
+                    f"{len(sm.dropped_subjects)} subject(s) were dropped for incomplete "
+                    "morphometry before MSN construction.",
+                    "p",
                 )
             )
-        lines += [
-            (f"figure pages: {n_plots}", 11, "normal"),
-            ("", 8, "normal"),
-            ("(Report layout is provisional and will be refined.)", 9, "italic"),
-        ]
-        fig = plt.figure(figsize=(8.27, 11.69))  # A4 portrait
-        ax = fig.add_axes([0, 0, 1, 1])
-        ax.axis("off")
-        y = 0.92
-        for text, size, weight in lines:
-            style = "italic" if weight == "italic" else "normal"
-            fw = "bold" if weight == "bold" else "normal"
-            ax.text(
-                0.08,
-                y,
-                text,
-                fontsize=size,
-                fontweight=fw,
-                fontstyle=style,
-                va="top",
-                transform=ax.transAxes,
+        blocks.append(("sp", "sp"))
+        blocks.append(("Morphometric metrics", "h"))
+        blocks.append(
+            (
+                "Each region is described by "
+                + str(len(cfg.msn.features))
+                + " FreeSurfer metrics, combined into a multivariate morphometric "
+                "fingerprint: " + ", ".join(cfg.msn.features) + ".",
+                "p",
             )
-            y -= 0.035 + size * 0.0012
-        pdf.savefig(fig)
-        plt.close(fig)
+        )
+        covs = list(cfg.glm.predictors)
+        blocks.append(("sp", "sp"))
+        blocks.append(("Statistical model", "h"))
+        blocks.append(
+            (
+                "Group differences in regional node strength are estimated with an "
+                "ordinary-least-squares model, strength ~ group"
+                + (" + " + " + ".join(covs) if covs else "")
+                + ". Categorical covariates (e.g. sex, site/scanner) are one-hot encoded "
+                "with a dropped reference level.",
+                "p",
+            )
+        )
+        if cfg.correlation.variables:
+            blocks.append(
+                (
+                    f"Node strength is additionally correlated with: "
+                    f"{', '.join(cfg.correlation.variables)} "
+                    f"({cfg.correlation.method}, {cfg.correlation.scope} scope).",
+                    "p",
+                )
+            )
+        self._paragraphs(fig, blocks, top=top - 0.01)
+        self._close_page(pdf, fig)
 
-    def _image_page(self, pdf, png: Path) -> None:
-        try:
-            img = mpimg.imread(png)
-        except Exception as exc:  # corrupt/zero-byte image — skip
-            logger.warning("REPORT: could not read %s: %s", png, exc)
+    def _msn_section(self, pdf, ctx: dict) -> None:
+        cfg = self.cfg
+        fig = self._open_page(pdf)
+        top = self._heading(
+            fig,
+            "Morphometric Similarity Networks",
+            kicker="Section 2",
+            subtitle="How each subject's region-by-region similarity network is built",
+        )
+        blocks = [
+            (
+                "For every subject and region, the "
+                + str(len(cfg.msn.features))
+                + " morphometric metrics are standardised across regions using a robust modified "
+                "z-score, M = 0.6745 · (x − median) / MAD, so that each metric contributes on a "
+                "comparable, outlier-resistant scale.",
+                "p",
+            ),
+            (
+                "The morphometric similarity between two regions is derived from the multivariate "
+                "Euclidean distance d between their standardised fingerprints, "
+                "S = 1 / (1 + d / n_metrics). This yields a region × region similarity matrix per "
+                "subject, bounded in (0, 1], with higher values for regions of more alike "
+                "cytoarchitecture-proxy morphometry.",
+                "p",
+            ),
+            (
+                "A region's node strength is the sum of its similarity edges — its total "
+                "morphometric connectivity within the cortex. The group-mean similarity matrices "
+                "below summarise the network structure of each group.",
+                "p",
+            ),
+        ]
+        self._paragraphs(fig, blocks, top=top - 0.01)
+        self._close_page(pdf, fig)
+
+        # Per-group mean similarity matrices, control first when a contrast defines it.
+        for group in self._ordered_groups(ctx):
+            png = self.plots_dir / f"{group}_mean_msn_matrix.png"
+            self._figure_page(
+                pdf,
+                png,
+                kicker="Section 2 · MSN matrices",
+                title=f"Mean morphometric similarity matrix — group {group}",
+                caption=f"Region × region mean similarity (viridis) · {self.cfg.engine.atlas} atlas.",
+            )
+
+    def _strength_section(self, pdf, ctx: dict) -> None:
+        fig = self._open_page(pdf)
+        top = self._heading(
+            fig,
+            "Node strength by group",
+            kicker="Section 3",
+            subtitle="Where each group concentrates its morphometric similarity hubs",
+        )
+        self._paragraphs(
+            fig,
+            [
+                (
+                    "Node strength maps below show, for each group, the mean regional node strength on "
+                    "the cortical surface and as a ranked bar chart. Both use a sequential viridis scale "
+                    "(brighter = stronger). These are descriptive group maps; the statistical contrast "
+                    "between groups follows in the next section.",
+                    "p",
+                ),
+            ],
+            top=top - 0.01,
+        )
+        self._close_page(pdf, fig)
+
+        for group in self._ordered_groups(ctx):
+            self._figure_page(
+                pdf,
+                self.plots_dir / f"{group}_strength_surface.png",
+                kicker="Section 3 · Node strength",
+                title=f"Mean node strength on the cortex — group {group}",
+                caption="Mean node strength per region, inflated surface, both hemispheres (viridis).",
+            )
+            self._figure_page(
+                pdf,
+                self.plots_dir / f"{group}_strength_bars.png",
+                kicker="Section 3 · Node strength",
+                title=f"Mean node strength by region — group {group}",
+                caption="Regions ranked by mean node strength (viridis).",
+            )
+
+    def _ordered_groups(self, ctx: dict) -> list[str]:
+        """Group labels, control-then-case for the first contrast when known."""
+        counts = self._group_counts(ctx)
+        groups = list(counts.keys())
+        contrasts = ctx.get("contrasts", [])
+        if contrasts:
+            _tag, _res, cc, kk = contrasts[0]
+            ordered = [g for g in (kk, cc) if g in groups]
+            ordered += [g for g in groups if g not in ordered]
+            return ordered
+        return groups
+
+    # ------------------------------------------------------------------
+    # Per-contrast section
+    # ------------------------------------------------------------------
+    def _contrast_section(self, pdf, ctx, tag, res, cc, kk) -> None:
+        case_lbl, ctrl_lbl = tag.split("_vs_", 1)
+        pretty = f"{case_lbl} vs {ctrl_lbl}"
+        kicker = f"Contrast · {pretty}"
+
+        # Section opener.
+        fig = self._open_page(pdf)
+        top = self._heading(
+            fig,
+            f"Case–control contrast: {pretty}",
+            kicker="Section 4",
+            subtitle=f"Group difference in node strength (statistic: {res.stat_type})",
+        )
+        covs = ", ".join(res.covariates) if res.covariates else "none"
+        self._paragraphs(
+            fig,
+            [
+                (
+                    f"Per-region node strength was contrasted between {case_lbl} (n = {res.n_case}) and "
+                    f"{ctrl_lbl} (n = {res.n_control}), adjusting for covariates: {covs}. The exported "
+                    f"difference map uses the {res.stat_type} statistic; significant regions are defined "
+                    f"by Benjamini-Hochberg FDR < {SIG_ALPHA}.",
+                    "p",
+                ),
+            ],
+            top=top - 0.01,
+        )
+        self._close_page(pdf, fig)
+
+        # (a) difference bar chart + surfaces.
+        self._figure_page(
+            pdf,
+            self.plots_dir / f"{tag}_{res.stat_type}_bars.png",
+            kicker=kicker,
+            title=f"Per-region node-strength {res.stat_type}: {pretty}",
+            caption="Regions sorted by contrast; red = higher in case, blue = higher in control.",
+        )
+        for mesh in ("inflated", "pial"):
+            self._figure_page(
+                pdf,
+                self.plots_dir / f"{tag}_surface_{mesh}.png",
+                kicker=kicker,
+                title=f"Node-strength {res.stat_type} contrast on the cortex ({mesh})",
+                caption=f"{pretty} · {mesh} surface · both hemispheres (RdBu_r, centred at 0).",
+            )
+
+        # (b) significant regions in writing + table.
+        self._significant_regions_page(pdf, res, pretty, kicker)
+
+        # (c) significant-only surface.
+        self._figure_page(
+            pdf,
+            self.plots_dir / f"{tag}_surface_significant.png",
+            kicker=kicker,
+            title=f"FDR-significant regions only: {pretty}",
+            caption=f"Only regions with FDR < {SIG_ALPHA} are coloured; others shown neutral.",
+        )
+
+        # (d-f) transcriptomics: PLS parameters, top genes, enrichment.
+        self._pls_parameters_page(pdf, tag, kicker)
+        self._top_genes_page(pdf, tag, kicker)
+        self._enrichment_section(pdf, tag, kicker, pretty)
+
+    def _significant_regions_page(self, pdf, res, pretty: str, kicker: str) -> None:
+        sig = res.significant_table(alpha=SIG_ALPHA)
+        fig = self._open_page(pdf)
+        top = self._heading(
+            fig,
+            "Significant regions",
+            kicker=kicker,
+            subtitle=f"Regions surviving FDR < {SIG_ALPHA}, with effect size and significance",
+        )
+        if sig.empty:
+            self._paragraphs(
+                fig,
+                [
+                    (
+                        f"No region survived FDR correction at q < {SIG_ALPHA} for {pretty}. "
+                        "The strongest uncorrected effects can still be read from the per-region bar "
+                        "chart and surface maps above.",
+                        "p",
+                    ),
+                ],
+                top=top - 0.01,
+            )
+            self._close_page(pdf, fig)
             return
-        fig = plt.figure(figsize=(11.69, 8.27))  # A4 landscape
-        ax = fig.add_axes([0.03, 0.06, 0.94, 0.88])
-        ax.axis("off")
-        ax.imshow(img)
-        fig.text(0.03, 0.02, png.name, fontsize=8, va="bottom", color="#555555")
-        pdf.savefig(fig)
-        plt.close(fig)
+
+        n = len(sig)
+        lead = sig.iloc[0]
+        direction = "higher" if lead["beta"] > 0 else "lower"
+        case_lbl = pretty.split(" vs ", 1)[0]
+        blocks = [
+            (
+                f"{n} region{'s' if n != 1 else ''} showed a significant group difference in node "
+                f"strength (FDR < {SIG_ALPHA}). The strongest effect was in "
+                f"{lead['region']} (beta = {lead['beta']:.3f}, t = {lead['t']:.2f}, "
+                f"p = {self._p(lead['p'])}, FDR = {self._p(lead['fdr'])}), where node strength was "
+                f"{direction} in {case_lbl}.",
+                "p",
+            ),
+        ]
+        # Name the rest concisely.
+        if n > 1:
+            names = ", ".join(str(r) for r in sig["region"].tolist()[1:8])
+            more = "" if n <= 8 else f", and {n - 8} more"
+            blocks.append((f"Other significant regions: {names}{more}.", "p"))
+        top = self._paragraphs(fig, blocks, top=top - 0.01)
+        self._draw_table(
+            fig,
+            sig,
+            top=top - 0.01,
+            caption="Positive beta = higher node strength in the case group.",
+        )
+        self._close_page(pdf, fig)
+
+    @staticmethod
+    def _p(v) -> str:
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            return "—"
+        if f != f:
+            return "—"
+        return f"{f:.1e}" if f < 1e-3 else f"{f:.4f}"
+
+    def _glob_tagged(self, pattern: str) -> list[Path]:
+        return sorted(self.output_dir.glob(pattern))
+
+    def _pls_parameters_page(self, pdf, tag: str, kicker: str) -> None:
+        files = self._glob_tagged(f"{tag}*_pls_summary.csv")
+        if not files:
+            return
+        for path in files:
+            try:
+                df = pd.read_csv(path)
+            except Exception:
+                continue
+            variant = path.stem[len(tag) :].replace("_pls_summary", "").strip("_")
+            title = "PLS components" + (f" · {variant}" if variant else "")
+            intro = [
+                (
+                    "Partial least squares regresses the regional case-control difference map onto "
+                    "Allen Human Brain Atlas gene expression. Each component's explained variance is "
+                    "tested against a spatial-null distribution; the p-value reflects spatial "
+                    "specificity.",
+                    "p",
+                ),
+            ]
+            self._table_page(
+                pdf,
+                title=title,
+                df=df,
+                kicker=kicker,
+                intro=intro,
+                caption="Explained variance, cumulative variance and spatial-null "
+                "p-value per PLS component.",
+            )
+
+    def _top_genes_page(self, pdf, tag: str, kicker: str) -> None:
+        files = self._glob_tagged(f"{tag}*_pls.csv")
+        for path in files:
+            try:
+                df = pd.read_csv(path)
+            except Exception:
+                continue
+            if df.empty:
+                continue
+            # First (or only) component.
+            if "component" in df.columns:
+                comp = sorted(df["component"].dropna().unique())[0]
+                df = df[df["component"] == comp]
+                comp_label = f" (component {int(comp)})"
+            else:
+                comp_label = ""
+            score_col = next((c for c in ("zscore", "weight", "score") if c in df.columns), None)
+            if score_col is None:
+                continue
+            ordered = df.sort_values(score_col, ascending=False)
+            keep = [c for c in ("gene", score_col, "p", "fdr") if c in ordered.columns]
+            top = ordered.head(20)[keep].copy()
+            bottom = ordered.tail(20)[keep].iloc[::-1].copy()
+            variant = path.stem[len(tag) :].replace("_pls", "").strip("_")
+            suffix = f" · {variant}" if variant else ""
+            self._table_page(
+                pdf,
+                title=f"Top 20 positively-weighted genes{comp_label}{suffix}",
+                df=top,
+                kicker=kicker,
+                max_rows=20,
+                intro=[
+                    (
+                        "Genes whose expression is most positively associated with the "
+                        "case-control node-strength difference (ranked by PLS weight).",
+                        "p",
+                    )
+                ],
+                caption=f"Ranked by {score_col} (descending).",
+            )
+            self._table_page(
+                pdf,
+                title=f"Top 20 negatively-weighted genes{comp_label}{suffix}",
+                df=bottom,
+                kicker=kicker,
+                max_rows=20,
+                intro=[
+                    (
+                        "Genes whose expression is most negatively associated with the "
+                        "case-control node-strength difference.",
+                        "p",
+                    )
+                ],
+                caption=f"Ranked by {score_col} (ascending).",
+            )
+
+    def _enrichment_section(self, pdf, tag: str, kicker: str, pretty: str) -> None:
+        # Engine enrichment dotplots, copied into plots/ with the contrast prefix.
+        for png in sorted(self.plots_dir.glob(f"{tag}*ensemble*.png")) + sorted(
+            self.plots_dir.glob(f"{tag}*gsea*.png")
+        ):
+            self._figure_page(
+                pdf,
+                png,
+                kicker=kicker,
+                title=f"Gene-set enrichment: {pretty}",
+                caption=png.stem.replace(tag + "_", "").replace("_", " "),
+            )
+        # Enrichment table — most significant terms.
+        files = self._glob_tagged(f"{tag}*_enrichment.csv")
+        for path in files:
+            try:
+                df = pd.read_csv(path)
+            except Exception:
+                continue
+            if df.empty:
+                continue
+            sort_cols = [c for c in ("fdr", "p_val", "p") if c in df.columns]
+            if sort_cols:
+                df = df.sort_values(sort_cols, kind="mergesort")
+            prefer = [
+                "method",
+                "enrichment",
+                "geneset",
+                "Term",
+                "z_score",
+                "category_score",
+                "matched_size",
+                "p_val",
+                "p",
+                "fdr",
+            ]
+            keep = [c for c in prefer if c in df.columns] or list(df.columns)
+            self._table_page(
+                pdf,
+                title="Most significant enrichment terms",
+                df=df[keep],
+                kicker=kicker,
+                max_rows=20,
+                intro=[
+                    (
+                        "Gene-set enrichment of the PLS-weighted genes, ranked by significance. "
+                        "z_score is the enrichment effect; p_val / fdr give nominal and "
+                        "FDR-corrected significance.",
+                        "p",
+                    )
+                ],
+                caption="Ranked by FDR (then nominal p).",
+            )
