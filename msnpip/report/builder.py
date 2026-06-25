@@ -525,13 +525,17 @@ class ReportBuilder:
         )
         self._close_page(pdf, fig)
 
-        # (a) difference bar chart + surfaces.
+        # (a) difference bar chart (t-values + FDR asterisks) + surfaces.
         self._figure_page(
             pdf,
-            self.plots_dir / f"{tag}_{res.stat_type}_bars.png",
+            self.plots_dir / f"{tag}_tvalue_bars.png",
             kicker=kicker,
-            title=f"Per-region node-strength {res.stat_type}: {pretty}",
-            caption="Regions sorted by contrast; red = higher in case, blue = higher in control.",
+            title=f"Per-region node-strength t-values: {pretty}",
+            caption=(
+                "Regions sorted by t-value; red = higher in case, blue = higher in control. "
+                f"Asterisks mark FDR significance (* < {SIG_ALPHA}, ** < 0.01, *** < 0.001); "
+                "non-significant regions are faded."
+            ),
         )
         for mesh in ("inflated", "pial"):
             self._figure_page(
@@ -712,18 +716,26 @@ class ReportBuilder:
             )
 
     def _enrichment_section(self, pdf, tag: str, kicker: str, pretty: str) -> None:
-        # Engine enrichment dotplots, copied into plots/ with the contrast prefix.
-        for png in sorted(self.plots_dir.glob(f"{tag}*ensemble*.png")) + sorted(
-            self.plots_dir.glob(f"{tag}*gsea*.png")
-        ):
-            self._figure_page(
+        emitted = False
+        # Engine enrichment plots (ensemble / gsea / ora dotplots & heatmaps),
+        # copied into plots/ with the contrast prefix.
+        seen: set = set()
+        plots: list[Path] = []
+        for key in ("ensemble", "gsea", "ora", "enrich", "dotplot"):
+            for png in sorted(self.plots_dir.glob(f"{tag}*{key}*.png")):
+                if png not in seen:
+                    seen.add(png)
+                    plots.append(png)
+        for png in plots:
+            if self._figure_page(
                 pdf,
                 png,
                 kicker=kicker,
                 title=f"Gene-set enrichment: {pretty}",
                 caption=png.stem.replace(tag + "_", "").replace("_", " "),
-            )
-        # Enrichment table — most significant terms.
+            ):
+                emitted = True
+        # Enrichment table(s) — most significant terms.
         files = self._glob_tagged(f"{tag}*_enrichment.csv")
         for path in files:
             try:
@@ -732,6 +744,7 @@ class ReportBuilder:
                 continue
             if df.empty:
                 continue
+            emitted = True
             sort_cols = [c for c in ("fdr", "p_val", "p") if c in df.columns]
             if sort_cols:
                 df = df.sort_values(sort_cols, kind="mergesort")
@@ -764,3 +777,48 @@ class ReportBuilder:
                 ],
                 caption="Ranked by FDR (then nominal p).",
             )
+
+        if not emitted:
+            self._enrichment_missing_page(pdf, tag, kicker, pretty)
+
+    def _enrichment_missing_page(self, pdf, tag: str, kicker: str, pretty: str) -> None:
+        """Explicit note when no enrichment output was found (never silent)."""
+        fig = self._open_page(pdf)
+        top = self._heading(
+            fig,
+            "Gene-set enrichment",
+            kicker=kicker,
+            subtitle=f"No enrichment results were found for {pretty}",
+        )
+        methods = ", ".join(self.cfg.engine.enrichment_methods) or "none"
+        self._paragraphs(
+            fig,
+            [
+                (
+                    "The pipeline found no enrichment results to report for this contrast. "
+                    "This means the transcriptomics engine did not write enrichment tables or "
+                    "plots, so there is nothing to summarise here.",
+                    "p",
+                ),
+                ("Most common causes", "h"),
+                (
+                    f"Configured enrichment method(s): {methods}. If this is 'none', no "
+                    "enrichment was requested.",
+                    "li",
+                ),
+                (
+                    "The gene sets could not be prepared (missing .gmt gene-set files or no "
+                    "internet access to download them), so the engine skipped enrichment.",
+                    "li",
+                ),
+                ("The enrichment step ran but no gene set reached the reporting threshold.", "li"),
+                (
+                    "To diagnose, check the run log around the TRANSCRIPTOMICS stage, and look for "
+                    f"'{tag}_enrichment.csv' in the output folder and '*ensemble*' / '*gsea*' PNGs "
+                    "under plots/. If those are absent, enrichment did not run in the engine.",
+                    "p",
+                ),
+            ],
+            top=top - 0.01,
+        )
+        self._close_page(pdf, fig)

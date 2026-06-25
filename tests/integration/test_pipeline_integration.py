@@ -83,7 +83,7 @@ def test_full_pipeline_builds_curated_outputs(full_cfg, monkeypatch):
     # Plots
     assert (out / "plots" / "FTD_vs_HC_violin.png").exists()
     assert (out / "plots" / "age_scatter.png").exists()
-    assert (out / "plots" / "FTD_vs_HC_beta_bars.png").exists()  # per-region contrast bars
+    assert (out / "plots" / "FTD_vs_HC_tvalue_bars.png").exists()  # per-region t-value bars
     assert (out / "plots" / "FTD_mean_msn_matrix.png").exists()  # per-group similarity matrix
     assert (out / "plots" / "HC_mean_msn_matrix.png").exists()
 

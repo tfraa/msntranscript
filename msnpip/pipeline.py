@@ -273,15 +273,19 @@ class Pipeline:
                 fig.savefig(self.plots_dir / f"{tag}_violin.png")
             except Exception as exc:
                 logger.warning("FIGURES: violin for %s failed: %s", tag, exc)
-            # Per-region contrast bar chart (use --contrast-stat t for t-value bars).
+            # Per-region t-value bar chart with FDR significance asterisks.
             try:
+                tvals = res.tvalue if res.tvalue is not None else res.regional_stat
                 plot_contrast_bars(
-                    res.regional_stat,
+                    tvals,
                     res.region_labels,
-                    stat_type=res.stat_type,
-                    title=f"{case_lbl} vs {ctrl_lbl}: per-region node-strength {res.stat_type}",
-                    subtitle=f"case-control difference map · {self.cfg.engine.atlas} atlas",
-                    output_path=self.plots_dir / f"{tag}_{res.stat_type}_bars.png",
+                    stat_type="t",
+                    title=f"{case_lbl} vs {ctrl_lbl}: per-region node-strength t-values",
+                    subtitle=f"case-control contrast · {self.cfg.engine.atlas} atlas",
+                    output_path=self.plots_dir / f"{tag}_tvalue_bars.png",
+                    significance=res.pvalue_fdr,
+                    alpha=SIG_ALPHA,
+                    sig_label="FDR",
                 )
             except Exception as exc:
                 logger.warning("FIGURES: contrast bars for %s failed: %s", tag, exc)
@@ -472,8 +476,13 @@ class Pipeline:
             self._csv(pd.concat(corr_frames, ignore_index=True), f"{tag}_corr")
 
         # Enrichment results, tagged by the engine method (pls/corr) and geneset.
+        # ensemble/gsea write ``*_results.tsv``; ORA writes ``ora_*_<dir>.tsv``.
+        enr_files = {
+            *bundle_dir.rglob("*_results*.tsv"),
+            *bundle_dir.rglob("ora_*.tsv"),
+        }
         enr_frames = []
-        for f in sorted(bundle_dir.rglob("*_results*.tsv")):
+        for f in sorted(enr_files):
             core = f.stem[: -len("_results")] if f.stem.endswith("_results") else f.stem
             backend, _, geneset = core.partition("_")
             method = f.parent.name if f.parent != bundle_dir else ""

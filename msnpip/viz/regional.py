@@ -10,7 +10,7 @@ import logging
 import matplotlib.pyplot as plt
 import numpy as np
 
-from msnpip.viz.theme import configure_theme
+from msnpip.viz.theme import configure_theme, significance_stars
 
 logger = logging.getLogger("msnpip.viz.regional")
 
@@ -22,41 +22,98 @@ def plot_contrast_bars(
     regional_stat,
     region_labels,
     *,
-    stat_type: str,
+    stat_type: str = "t",
     title: str,
     output_path,
     subtitle: str | None = None,
+    significance=None,
+    alpha: float = 0.05,
+    sig_label: str = "FDR",
 ):
     """Horizontal bar chart of the per-region case-vs-control contrast statistic.
 
-    Bars are sorted by value and coloured by sign (red positive, blue negative).
-    The statistic shown is whatever the contrast used (``--contrast-stat``); pass
-    ``t`` for t-value bars.
+    Bars are sorted by value and coloured by sign (red = higher in case, blue =
+    higher in control).  When *significance* (a per-region p/FDR array aligned to
+    *region_labels*) is given, regions surviving ``< alpha`` are drawn at full
+    opacity and annotated with APA significance stars (``*`` ``**`` ``***``);
+    non-significant regions are faded.  The statistic is typically the t-value
+    (``stat_type="t"``).
     """
     configure_theme()
     values = np.asarray(regional_stat, dtype=float)
     labels = list(region_labels)
-    order = np.argsort(np.nan_to_num(values))
-    values, labels = values[order], [labels[i] for i in order]
+    sig = (
+        np.asarray(significance, dtype=float)
+        if significance is not None
+        else np.full(len(values), np.nan)
+    )
 
-    height = max(3.0, 0.16 * len(labels) + 1.0)
-    fig, ax = plt.subplots(figsize=(7.0, height))
-    colors = [_POS if v >= 0 else _NEG for v in values]
-    ax.barh(range(len(values)), values, color=colors, edgecolor="none")
+    order = np.argsort(np.nan_to_num(values))
+    values = values[order]
+    labels = [labels[i] for i in order]
+    sig = sig[order]
+    is_sig = np.isfinite(sig) & (sig < alpha)
+
+    height = max(3.0, 0.18 * len(labels) + 1.2)
+    fig, ax = plt.subplots(figsize=(7.6, height))
+    have_sig = bool(np.isfinite(sig).any())
+    for i, v in enumerate(values):
+        color = _POS if v >= 0 else _NEG
+        # Fade non-significant bars only when we actually have significance info.
+        opacity = 1.0 if (is_sig[i] or not have_sig) else 0.38
+        ax.barh(i, v, color=color, edgecolor="none", alpha=opacity)
+
+    # Asterisks just beyond the tip of each significant bar.
+    if have_sig:
+        span = float(np.nanmax(np.abs(values))) or 1.0
+        pad = 0.012 * span
+        for i, v in enumerate(values):
+            if not is_sig[i]:
+                continue
+            stars = significance_stars(float(sig[i]))
+            if stars == "ns":
+                continue
+            if v >= 0:
+                ax.text(v + pad, i, stars, va="center", ha="left", fontsize=9, color="#222222")
+            else:
+                ax.text(v - pad, i, stars, va="center", ha="right", fontsize=9, color="#222222")
+
     ax.set_yticks(range(len(values)))
     ax.set_yticklabels(labels, fontsize=6.5)
     ax.axvline(0.0, color="#444444", linewidth=0.8)
-    ax.set_xlabel(f"contrast {stat_type}")
+    ax.set_xlabel(f"node-strength contrast ({stat_type})")
     ax.set_ylim(-1, len(values))
-    ax.set_title(title, fontsize=12, fontweight="bold", loc="left")
-    if subtitle:
-        ax.text(
-            0.0, 1.005, subtitle, transform=ax.transAxes, fontsize=8.5, va="bottom", color="#555555"
+    # Widen x so the stars are not clipped.
+    if have_sig and np.isfinite(values).any():
+        lo, hi = float(np.nanmin(values)), float(np.nanmax(values))
+        margin = 0.10 * (max(abs(lo), abs(hi)) or 1.0)
+        ax.set_xlim(min(0.0, lo) - margin, max(0.0, hi) + margin)
+    sub = subtitle
+    if have_sig:
+        star_note = f"* {sig_label} < {alpha}   ** < 0.01   *** < 0.001"
+        sub = f"{subtitle}\n{star_note}" if subtitle else star_note
+    n_sub = (sub.count("\n") + 1) if sub else 0
+    # Reserve headroom (inches → figure fraction) so the title/subtitle never
+    # overlap the top bars, independent of region count.
+    headroom = 0.34 + 0.18 * n_sub + 0.16
+    top_frac = max(0.5, 1.0 - headroom / height)
+    fig.tight_layout(rect=(0.0, 0.0, 1.0, top_frac))
+    pos = ax.get_position()
+    fig.text(
+        pos.x0, 0.985, title, va="top", ha="left", fontsize=12.5, fontweight="bold", color="#1f2933"
+    )
+    if sub:
+        fig.text(
+            pos.x0, 0.985 - 0.34 / height, sub, va="top", ha="left", fontsize=8.5, color="#555555"
         )
-    fig.tight_layout()
     fig.savefig(output_path)
     plt.close(fig)
-    logger.info("plot_contrast_bars: wrote %s (%d regions)", output_path, len(values))
+    logger.info(
+        "plot_contrast_bars: wrote %s (%d regions, %d significant)",
+        output_path,
+        len(values),
+        int(is_sig.sum()),
+    )
     return output_path
 
 
