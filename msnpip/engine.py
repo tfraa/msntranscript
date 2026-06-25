@@ -88,7 +88,15 @@ def enable_annot_surface_nulls() -> None:
 
 
 def _is_null_error(exc: BaseException) -> bool:
-    return type(exc).__name__ == "NullModelError" or "null" in str(exc).lower()
+    """True if *exc* is the engine's NullModelError (by class, with name fallback)."""
+    try:
+        from imaging_transcriptomics.exceptions import NullModelError
+
+        if isinstance(exc, NullModelError):
+            return True
+    except Exception:  # pragma: no cover - exceptions module layout drift
+        pass
+    return type(exc).__name__ == "NullModelError"
 
 
 def _primary_enrichment(enrichment_methods: tuple[str, ...]) -> str:

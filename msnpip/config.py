@@ -16,7 +16,6 @@ from typing import Literal
 from msnpip.errors import ConfigurationError
 
 # --- type aliases (spec §4.1) ------------------------------------------------
-StrengthSign = Literal["positive", "absolute", "signed"]
 StrengthAgg = Literal["mean", "sum"]
 ContrastStat = Literal["beta", "t", "cohen_d"]
 CorrMethod = Literal["pearson", "spearman"]
@@ -33,7 +32,7 @@ class EngineConfig:
     fed to the *engine* — the MSN itself is always whole-cortex (both).
     """
 
-    methods: tuple[Literal["pls", "corr"], ...] = ("pls", "corr")
+    methods: tuple[Literal["pls", "corr"], ...] = ("pls",)
     atlas: str = "dk"
     hemisphere: Literal["left", "both"] = "left"
     compare_hemispheres: bool = False
@@ -83,9 +82,6 @@ class IOConfig:
 @dataclass(frozen=True)
 class MSNConfig:
     features: tuple[str, ...] = ("SurfArea", "GrayVol", "ThickAvg", "MeanCurv", "GausCurv")
-    similarity: CorrMethod = "pearson"
-    zscore_within_subject: bool = True
-    strength_sign: StrengthSign = "signed"  # legacy/no-op for the Euclidean-similarity MSN
     strength_agg: StrengthAgg = "sum"  # node strength = sum of edge weights (Tomasella et al.)
 
 
@@ -95,7 +91,6 @@ class GLMConfig:
     one_hot_always: tuple[str, ...] = ("site", "scanner")
     reference_levels: dict[str, str] = field(default_factory=dict)
     contrast_stat: ContrastStat = "beta"
-    exclude_covariates: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -186,9 +181,7 @@ class PipelineConfig:
             **_coerce_paths(data.pop("io", {}), ("freesurfer_dir", "demographics", "dataframe"))
         )
         msn = MSNConfig(**_tuplify(data.pop("msn", {}), ("features",)))
-        glm = GLMConfig(
-            **_tuplify(data.pop("glm", {}), ("predictors", "one_hot_always", "exclude_covariates"))
-        )
+        glm = GLMConfig(**_tuplify(data.pop("glm", {}), ("predictors", "one_hot_always")))
         corr = CorrelationConfig(**_tuplify(data.pop("correlation", {}), ("variables",)))
         engine = EngineConfig(
             **_tuplify(data.pop("engine", {}), ("methods", "enrichment_methods", "gene_sets"))

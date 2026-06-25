@@ -40,10 +40,23 @@ class ReportBuilder:
         return pdf_path
 
     # ------------------------------------------------------------------
+    @staticmethod
+    def _resolved_nulls(ctx: dict) -> str:
+        """Comma-joined set of null methods the engine actually used (provenance)."""
+        used = set()
+        for entry in ctx.get("transcriptomics", []):
+            results = entry[2] if len(entry) > 2 else {}
+            for res in (results or {}).values():
+                nm = getattr(getattr(res, "metadata", None), "null_method", None)
+                if nm:
+                    used.add(str(nm))
+        return ", ".join(sorted(used))
+
     def _cover_page(self, pdf, ctx: dict, n_plots: int) -> None:
         cfg = self.cfg
         sm = ctx.get("strength_maps")
         contrasts = [t for t, *_ in ctx.get("contrasts", [])]
+        resolved_nulls = self._resolved_nulls(ctx)
         lines = [
             ("msnpip 2.0 — analysis report", 18, "bold"),
             ("", 10, "normal"),
@@ -54,11 +67,12 @@ class ReportBuilder:
                 "normal",
             ),
             (
-                f"methods: {', '.join(cfg.engine.methods)}    null: {cfg.engine.null_method}"
+                f"methods: {', '.join(cfg.engine.methods)}    requested null: {cfg.engine.null_method}"
                 f"    permutations: {cfg.engine.n_permutations}",
                 11,
                 "normal",
             ),
+            (f"resolved spatial null: {resolved_nulls or 'n/a'}", 11, "normal"),
             (
                 f"enrichment: {', '.join(cfg.engine.enrichment_methods)}    seed: {cfg.engine.seed}",
                 11,
@@ -67,6 +81,19 @@ class ReportBuilder:
             ("", 8, "normal"),
             (f"subjects: {sm.n_subjects if sm is not None else 'n/a'}", 11, "normal"),
             (f"contrasts: {', '.join(contrasts) if contrasts else 'none'}", 11, "normal"),
+        ]
+        for var, res in ctx.get("correlations", []):
+            r = float(res.r[0]) if len(res.r) else float("nan")
+            p = float(res.p[0]) if len(res.p) else float("nan")
+            lines.append(
+                (
+                    f"correlation (strength ~ {var}): r={r:.3f}, p={p:.3g}, n={res.n}"
+                    f" [{res.method}, {res.scope}]",
+                    11,
+                    "normal",
+                )
+            )
+        lines += [
             (f"figure pages: {n_plots}", 11, "normal"),
             ("", 8, "normal"),
             ("(Report layout is provisional and will be refined.)", 9, "italic"),

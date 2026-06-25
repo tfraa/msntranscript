@@ -89,14 +89,12 @@ def _add_contrast_args(ap):
 
 def _add_msn_args(ap):
     ap.add_argument("--features", nargs="+", default=_SUP)
-    ap.add_argument("--strength-sign", choices=("positive", "absolute", "signed"), default=_SUP)
     ap.add_argument("--strength-agg", choices=("mean", "sum"), default=_SUP)
 
 
 def _add_glm_args(ap):
     ap.add_argument("--predictors", nargs="+", default=_SUP)
     ap.add_argument("--contrast-stat", choices=("beta", "t", "cohen_d"), default=_SUP)
-    ap.add_argument("--exclude-covariate", nargs="+", dest="exclude_covariate", default=_SUP)
 
 
 def _add_corr_args(ap):
@@ -111,6 +109,13 @@ def _add_engine_args(ap):
     ap.add_argument("--hemisphere", choices=("left", "both"), default=_SUP)
     ap.add_argument("--compare-hemispheres", action="store_true", default=_SUP)
     ap.add_argument("--regions", choices=("cort", "cort+sub"), default=_SUP)
+    ap.add_argument(
+        "--null-method",
+        choices=("vasa", "alexander_bloch", "moran", "auto", "random"),
+        dest="null_method",
+        default=_SUP,
+        help="cortical spatial null (default vasa). Use 'auto' to allow fallback to random.",
+    )
     ap.add_argument(
         "--method", choices=("pls", "corr"), action="append", dest="method", default=_SUP
     )
@@ -165,8 +170,6 @@ def _cfg_from_args(args) -> PipelineConfig:
     msn: dict = {}
     if "features" in a:
         msn["features"] = list(a["features"])
-    if "strength_sign" in a:
-        msn["strength_sign"] = a["strength_sign"]
     if "strength_agg" in a:
         msn["strength_agg"] = a["strength_agg"]
 
@@ -175,8 +178,6 @@ def _cfg_from_args(args) -> PipelineConfig:
         glm["predictors"] = list(a["predictors"])
     if "contrast_stat" in a:
         glm["contrast_stat"] = a["contrast_stat"]
-    if "exclude_covariate" in a:
-        glm["exclude_covariates"] = list(a["exclude_covariate"])
 
     corr: dict = {}
     if "correlate_with" in a:
@@ -194,6 +195,7 @@ def _cfg_from_args(args) -> PipelineConfig:
         ("hemisphere", "hemisphere"),
         ("compare_hemispheres", "compare_hemispheres"),
         ("regions", "regions"),
+        ("null_method", "null_method"),
         ("n_perm", "n_permutations"),
         ("seed", "seed"),
     ):

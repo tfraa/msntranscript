@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 import re
 import shutil
+import warnings
 from dataclasses import replace
 from pathlib import Path
 
@@ -53,7 +54,6 @@ STAGES = [
     "MSN",
     "CONTRAST",
     "CORRELATION",
-    "SENSITIVITY",
     "TRANSCRIPTOMICS",
     "FIGURES",
     "REPORT",
@@ -222,10 +222,6 @@ class Pipeline:
             )
         self.ctx["correlations"] = results
 
-    def _stage_sensitivity(self) -> None:
-        # Covariate-exclusion sensitivity is not part of the curated output set.
-        logger.info("SENSITIVITY: skipped (not in curated outputs).")
-
     def _stage_transcriptomics(self) -> None:
         cfg = self.cfg
         hemis = ["left", "both"] if cfg.engine.compare_hemispheres else [cfg.engine.hemisphere]
@@ -258,6 +254,7 @@ class Pipeline:
 
         matplotlib.use("Agg")
         from msnpip.viz.distributions import plot_strength_violin
+        from msnpip.viz.regional import plot_contrast_bars, plot_msn_matrix
         from msnpip.viz.scatter import plot_demographic_correlation
         from msnpip.viz.surface_extra import plot_surface_with_dorsal
 
@@ -272,6 +269,18 @@ class Pipeline:
                 fig.savefig(self.plots_dir / f"{tag}_violin.png")
             except Exception as exc:
                 logger.warning("FIGURES: violin for %s failed: %s", tag, exc)
+            # Per-region contrast bar chart (use --contrast-stat t for t-value bars).
+            try:
+                plot_contrast_bars(
+                    res.regional_stat,
+                    res.region_labels,
+                    stat_type=res.stat_type,
+                    title=f"{case_lbl} vs {ctrl_lbl}: per-region node-strength {res.stat_type}",
+                    subtitle=f"case-control difference map · {self.cfg.engine.atlas} atlas",
+                    output_path=self.plots_dir / f"{tag}_{res.stat_type}_bars.png",
+                )
+            except Exception as exc:
+                logger.warning("FIGURES: contrast bars for %s failed: %s", tag, exc)
             # Surface maps: both hemispheres, on inflated AND pial surfaces.
             try:
                 vec, labels_df = align_strength_to_atlas(
@@ -309,6 +318,25 @@ class Pipeline:
             except Exception as exc:
                 logger.warning("FIGURES: scatter for %s failed: %s", var, exc)
 
+        # Per-group mean similarity-matrix heatmaps (needs the per-subject matrices).
+        if getattr(sm, "matrix", None) is not None and sm.matrix.ndim == 3 and sm.matrix.shape[2]:
+            for group, idx in self._group_indices(sm).items():
+                if idx.size == 0:
+                    continue
+                try:
+                    with warnings.catch_warnings():  # NaN diagonal → benign empty-slice
+                        warnings.simplefilter("ignore", category=RuntimeWarning)
+                        mean_mat = np.nanmean(sm.matrix[idx], axis=0)
+                    plot_msn_matrix(
+                        mean_mat,
+                        sm.region_labels,
+                        title=f"Mean morphometric similarity — group {group}",
+                        subtitle=f"{self.cfg.engine.atlas} atlas · {idx.size} subjects",
+                        output_path=self.plots_dir / f"{group}_mean_msn_matrix.png",
+                    )
+                except Exception as exc:
+                    logger.warning("FIGURES: mean MSN matrix for group %s failed: %s", group, exc)
+
     def _stage_report(self) -> None:
         from msnpip.report.builder import ReportBuilder
 
@@ -327,17 +355,20 @@ class Pipeline:
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
-    def _mean_strength_per_group(self, sm: StrengthMaps) -> pd.DataFrame:
+    def _group_indices(self, sm: StrengthMaps) -> dict:
+        """Map each group label → array of row indices into ``sm`` (subject order)."""
         df, schema = self.ctx["df"], self.ctx["schema"]
-        out = pd.DataFrame({"region": sm.region_labels})
         gcol = schema.group_col
-        if gcol and gcol in df.columns:
-            aligned = df.set_index(df[schema.id_col].astype(str)).loc[sm.subject_ids]
-            groups = aligned[gcol].map(normalize_group_value).to_numpy()
-            for g in pd.unique(groups):
-                out[f"mean_strength_{g}"] = sm.strength[groups == g].mean(axis=0)
-        else:
-            out["mean_strength_all"] = sm.strength.mean(axis=0)
+        if not (gcol and gcol in df.columns):
+            return {"all": np.arange(len(sm.subject_ids))}
+        aligned = df.set_index(df[schema.id_col].astype(str)).loc[sm.subject_ids]
+        groups = aligned[gcol].map(normalize_group_value).to_numpy()
+        return {g: np.flatnonzero(groups == g) for g in pd.unique(groups)}
+
+    def _mean_strength_per_group(self, sm: StrengthMaps) -> pd.DataFrame:
+        out = pd.DataFrame({"region": sm.region_labels})
+        for group, idx in self._group_indices(sm).items():
+            out[f"mean_strength_{group}"] = sm.strength[idx].mean(axis=0)
         return out
 
     def _curate_engine_bundle(self, tag: str, bundle_dir: Path) -> None:
@@ -354,14 +385,23 @@ class Pipeline:
         if pls_frames:
             self._csv(pd.concat(pls_frames, ignore_index=True), f"{tag}_pls")
 
-        # Enrichment results (ensemble/gsea/ora), tagged by method and geneset.
+        # Correlation gene-level results (only when the corr method was run).
+        corr_frames = [
+            pd.read_csv(f, sep="\t") for f in sorted(bundle_dir.glob("corr/*genes*.tsv"))
+        ]
+        if corr_frames:
+            self._csv(pd.concat(corr_frames, ignore_index=True), f"{tag}_corr")
+
+        # Enrichment results, tagged by the engine method (pls/corr) and geneset.
         enr_frames = []
         for f in sorted(bundle_dir.rglob("*_results*.tsv")):
             core = f.stem[: -len("_results")] if f.stem.endswith("_results") else f.stem
-            method, _, geneset = core.partition("_")
+            backend, _, geneset = core.partition("_")
+            method = f.parent.name if f.parent != bundle_dir else ""
             tbl = pd.read_csv(f, sep="\t")
             tbl.insert(0, "geneset", geneset)
-            tbl.insert(0, "enrichment", method)
+            tbl.insert(0, "enrichment", backend)
+            tbl.insert(0, "method", method)
             enr_frames.append(tbl)
         if enr_frames:
             self._csv(pd.concat(enr_frames, ignore_index=True), f"{tag}_enrichment")

@@ -61,7 +61,7 @@ def test_no_config_falls_back_to_dataclass_defaults(tmp_path):
     cfg = _cfg_from_args(args)
     assert cfg.engine.atlas == "dk"
     assert cfg.engine.hemisphere == "left"
-    assert cfg.engine.methods == ("pls", "corr")
+    assert cfg.engine.methods == ("pls",)
     assert cfg.engine.n_components == 1
 
 

@@ -78,14 +78,14 @@ class TestPrimaryEnrichment:
 
 class TestRunTranscriptomics:
     def test_runs_all_methods(self, patched_engine, tmp_path):
-        cfg = EngineConfig(n_permutations=10)
+        cfg = EngineConfig(methods=("pls", "corr"), n_permutations=10)
         rmap = np.arange(34, dtype=float)
         out = run_transcriptomics(rmap, _labels_df(34), cfg, tmp_path, "FTD_vs_HC")
         assert set(out) == {"pls", "corr"}
         assert [c["method"] for c in patched_engine] == ["pls", "corr"]
 
     def test_forwards_engine_kwargs(self, patched_engine, tmp_path):
-        cfg = EngineConfig(n_permutations=10)
+        cfg = EngineConfig(methods=("pls", "corr"), n_permutations=10)
         run_transcriptomics(np.arange(34.0), _labels_df(34), cfg, tmp_path, "tag")
         pls = next(c for c in patched_engine if c["method"] == "pls")
         assert pls["atlas"] == "dk"
@@ -99,7 +99,7 @@ class TestRunTranscriptomics:
         assert "n_components" not in corr
 
     def test_output_dir_layout(self, patched_engine, tmp_path):
-        cfg = EngineConfig(n_permutations=10)
+        cfg = EngineConfig(methods=("pls", "corr"), n_permutations=10)
         run_transcriptomics(np.arange(34.0), _labels_df(34), cfg, tmp_path, "FTD_vs_HC")
         assert (tmp_path / "FTD_vs_HC" / "pls").is_dir()
         assert (tmp_path / "FTD_vs_HC" / "corr").is_dir()
