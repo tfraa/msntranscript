@@ -258,7 +258,7 @@ class Pipeline:
 
         matplotlib.use("Agg")
         from msnpip.viz.distributions import plot_strength_violin
-        from msnpip.viz.regional import plot_contrast_bars, plot_msn_matrix, plot_strength_bars
+        from msnpip.viz.regional import plot_hemisphere_bars, plot_msn_matrix
         from msnpip.viz.scatter import plot_demographic_correlation
         from msnpip.viz.surface_extra import plot_surface_with_dorsal
 
@@ -273,16 +273,18 @@ class Pipeline:
                 fig.savefig(self.plots_dir / f"{tag}_violin.png")
             except Exception as exc:
                 logger.warning("FIGURES: violin for %s failed: %s", tag, exc)
-            # Per-region t-value bar chart with FDR significance asterisks.
+            # Per-region t-value bars, split by hemisphere (default region order)
+            # with FDR significance asterisks.
             try:
                 tvals = res.tvalue if res.tvalue is not None else res.regional_stat
-                plot_contrast_bars(
+                plot_hemisphere_bars(
                     tvals,
                     res.region_labels,
-                    stat_type="t",
-                    title=f"{case_lbl} vs {ctrl_lbl}: per-region node-strength t-values",
+                    value_label="t-value",
+                    title=f"{case_lbl} vs {ctrl_lbl}: node-strength t-values",
                     subtitle=f"case-control contrast · {self.cfg.engine.atlas} atlas",
                     output_path=self.plots_dir / f"{tag}_tvalue_bars.png",
+                    color_mode="sign",
                     significance=res.pvalue_fdr,
                     alpha=SIG_ALPHA,
                     sig_label="FDR",
@@ -361,12 +363,15 @@ class Pipeline:
                 continue
             mean_strength = sm.strength[idx].mean(axis=0)
             try:
-                plot_strength_bars(
+                plot_hemisphere_bars(
                     mean_strength,
                     sm.region_labels,
-                    title=f"Mean node strength — group {group}",
-                    subtitle=f"{self.cfg.engine.atlas} atlas · {idx.size} subjects",
+                    value_label="mean node strength",
+                    title=f"Mean node strength by region — group {group}",
+                    subtitle=f"{self.cfg.engine.atlas} atlas · {idx.size} subjects · all regions",
                     output_path=self.plots_dir / f"{group}_strength_bars.png",
+                    color_mode="sequential",
+                    cmap="viridis",
                 )
             except Exception as exc:
                 logger.warning("FIGURES: strength bars for group %s failed: %s", group, exc)

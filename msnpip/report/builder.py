@@ -478,7 +478,7 @@ class ReportBuilder:
                 self.plots_dir / f"{group}_strength_bars.png",
                 kicker="Section 3 · Node strength",
                 title=f"Mean node strength by region — group {group}",
-                caption="Regions ranked by mean node strength (viridis).",
+                caption="Left and right hemispheres, all regions in default order (viridis by value).",
             )
 
     def _ordered_groups(self, ctx: dict) -> list[str]:
@@ -532,7 +532,8 @@ class ReportBuilder:
             kicker=kicker,
             title=f"Per-region node-strength t-values: {pretty}",
             caption=(
-                "Regions sorted by t-value; red = higher in case, blue = higher in control. "
+                "Left and right hemispheres, all regions in default (alphabetical) order. "
+                "Red = higher in case, blue = higher in control. "
                 f"Asterisks mark FDR significance (* < {SIG_ALPHA}, ** < 0.01, *** < 0.001); "
                 "non-significant regions are faded."
             ),
