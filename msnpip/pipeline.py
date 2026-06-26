@@ -258,7 +258,11 @@ class Pipeline:
 
         matplotlib.use("Agg")
         from msnpip.viz.distributions import plot_strength_violin
-        from msnpip.viz.regional import plot_hemisphere_bars, plot_msn_matrix
+        from msnpip.viz.regional import (
+            plot_enrichment_bars,
+            plot_hemisphere_bars,
+            plot_msn_matrix,
+        )
         from msnpip.viz.scatter import plot_demographic_correlation
         from msnpip.viz.surface_extra import plot_surface_with_dorsal
 
@@ -347,6 +351,12 @@ class Pipeline:
                         )
             except Exception as exc:
                 logger.warning("FIGURES: significant surface for %s failed: %s", tag, exc)
+            # Gene-set enrichment bars (one per gene set × backend) from the
+            # curated enrichment table.
+            try:
+                self._enrichment_figures(tag, plot_enrichment_bars)
+            except Exception as exc:
+                logger.warning("FIGURES: enrichment bars for %s failed: %s", tag, exc)
 
         for var, res in self.ctx.get("correlations", []):
             if res.scope != "global":
@@ -480,8 +490,9 @@ class Pipeline:
         if corr_frames:
             self._csv(pd.concat(corr_frames, ignore_index=True), f"{tag}_corr")
 
-        # Enrichment results, tagged by the engine method (pls/corr) and geneset.
-        # ensemble/gsea write ``*_results.tsv``; ORA writes ``ora_*_<dir>.tsv``.
+        # Enrichment results. The PLS path writes one folder per gene set:
+        # ``<method>/enrichment/<geneset>/<backend>_pls<N>_*.tsv``.  Legacy
+        # single-call bundles write ``<method>/<backend>_pls<N>_results.tsv``.
         enr_files = {
             *bundle_dir.rglob("*_results*.tsv"),
             *bundle_dir.rglob("ora_*.tsv"),
@@ -489,9 +500,16 @@ class Pipeline:
         enr_frames = []
         for f in sorted(enr_files):
             core = f.stem[: -len("_results")] if f.stem.endswith("_results") else f.stem
-            backend, _, geneset = core.partition("_")
-            method = f.parent.name if f.parent != bundle_dir else ""
+            backend = core.partition("_")[0]
+            comp = re.search(r"pls(\d+)", core)
+            if f.parent.parent.name == "enrichment":  # per-gene-set layout
+                geneset = f.parent.name
+                method = f.parent.parent.parent.name
+            else:  # legacy single-call layout
+                geneset = core.partition("_")[2]
+                method = f.parent.name if f.parent != bundle_dir else ""
             tbl = pd.read_csv(f, sep="\t")
+            tbl.insert(0, "component", int(comp.group(1)) if comp else 1)
             tbl.insert(0, "geneset", geneset)
             tbl.insert(0, "enrichment", backend)
             tbl.insert(0, "method", method)
@@ -502,6 +520,50 @@ class Pipeline:
         # Engine plots (PLS variance, enrichment dotplots, etc.).
         for png in sorted(bundle_dir.rglob("*.png")):
             shutil.copy(png, self.plots_dir / f"{tag}_{png.stem}.png")
+
+    # Enrichment score / significance columns per backend (ensemble vs gsea).
+    _ENR_SCORE_COLS = ("nes", "z_score", "category_score", "es")
+    _ENR_SIG_COLS = ("fdr", "p_val", "p")
+
+    def _enrichment_figures(self, tag: str, plot_enrichment_bars) -> None:
+        """Make a diverging enrichment bar plot per gene set × backend."""
+        for path in sorted(self.out_dir.glob(f"{tag}*_enrichment.csv")):
+            try:
+                df = pd.read_csv(path)
+            except Exception:
+                continue
+            if df.empty or "Term" not in df.columns:
+                continue
+            group_cols = [c for c in ("enrichment", "geneset") if c in df.columns]
+            stem = path.stem[: -len("_enrichment")]
+            groups = df.groupby(group_cols) if group_cols else [((), df)]
+            for key, sub in groups:
+                key = key if isinstance(key, tuple) else (key,)
+                backend = str(key[0]) if "enrichment" in group_cols else "enrichment"
+                geneset = str(key[-1]) if "geneset" in group_cols else "geneset"
+                # Pick the score/sig column per backend (gsea→nes, ensemble→z_score):
+                # choose the first candidate with finite values in THIS group.
+                score_col = next(
+                    (c for c in self._ENR_SCORE_COLS if c in sub.columns and sub[c].notna().any()),
+                    None,
+                )
+                if score_col is None:
+                    continue
+                sig_col = next(
+                    (c for c in self._ENR_SIG_COLS if c in sub.columns and sub[c].notna().any()),
+                    None,
+                )
+                score_label = "NES" if score_col == "nes" else score_col
+                plot_enrichment_bars(
+                    sub["Term"].tolist(),
+                    sub[score_col].tolist(),
+                    score_label=f"{score_label} ({backend})",
+                    title=f"Gene-set enrichment: {geneset}",
+                    subtitle=f"{backend} · {geneset}",
+                    output_path=self.plots_dir / f"{stem}_{backend}_{geneset}_enrichment.png",
+                    significance=sub[sig_col].tolist() if sig_col else None,
+                    sig_label=sig_col.upper() if sig_col else "FDR",
+                )
 
     def _atlas_regions(self) -> list[str] | None:
         try:

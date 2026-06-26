@@ -197,3 +197,102 @@ def plot_msn_matrix(
     plt.close(fig)
     logger.info("plot_msn_matrix: wrote %s (%dx%d)", output_path, mat.shape[0], mat.shape[1])
     return output_path
+
+
+def plot_enrichment_bars(
+    terms,
+    scores,
+    *,
+    score_label: str,
+    title: str,
+    output_path,
+    significance=None,
+    alpha: float = 0.05,
+    sig_label: str = "FDR",
+    subtitle: str | None = None,
+    top_n: int = 10,
+):
+    """Diverging horizontal bar chart of gene-set enrichment terms.
+
+    Most positive terms (red) on top, most negative (blue) on the bottom, split
+    by a dashed line at zero — the layout of the thesis enrichment figure.  Up to
+    *top_n* terms per direction are shown.  When *significance* is given, terms
+    with ``< alpha`` are annotated with APA stars and others are faded.
+    """
+    configure_theme()
+    scores = np.asarray(scores, dtype=float)
+    terms = [str(t) for t in terms]
+    sig = (
+        np.asarray(significance, dtype=float)
+        if significance is not None
+        else np.full(len(scores), np.nan)
+    )
+    ok = np.isfinite(scores)
+    terms = [t for t, m in zip(terms, ok) if m]
+    sig = sig[ok]
+    scores = scores[ok]
+    if scores.size == 0:
+        return None
+
+    order = np.argsort(scores)  # ascending
+    scores, sig = scores[order], sig[order]
+    terms = [terms[i] for i in order]
+
+    neg_idx = [i for i, v in enumerate(scores) if v < 0][:top_n]
+    pos_idx = [i for i, v in enumerate(scores) if v >= 0][-top_n:]
+    keep = neg_idx + pos_idx
+    if not keep:
+        return None
+    s = scores[keep]
+    g = sig[keep]
+    t = [terms[i] for i in keep]
+    is_sig = np.isfinite(g) & (g < alpha)
+    have_sig = bool(np.isfinite(g).any())
+
+    height = max(2.6, 0.34 * len(s) + 1.4)
+    fig, ax = plt.subplots(figsize=(8.0, height))
+    y = np.arange(len(s))
+    for yi, v in zip(y, s):
+        opacity = 1.0 if (is_sig[yi] or not have_sig) else 0.45
+        ax.barh(yi, v, color=_POS if v >= 0 else _NEG, alpha=opacity, edgecolor="none")
+    if have_sig:
+        xmax = float(np.max(np.abs(s))) or 1.0
+        pad = 0.02 * xmax
+        for yi, v in zip(y, s):
+            if not is_sig[yi]:
+                continue
+            stars = significance_stars(float(g[yi]))
+            if stars == "ns":
+                continue
+            ha, dx = ("left", pad) if v >= 0 else ("right", -pad)
+            ax.text(v + dx, yi, stars, va="center", ha=ha, fontsize=8, color="#222222")
+
+    ax.axvline(0.0, color="#444444", linewidth=0.8)
+    ax.set_yticks(y)
+    ax.set_yticklabels(t, fontsize=7.5)
+    ax.set_xlabel(score_label)
+    ax.set_ylim(-1, len(s))
+    if np.isfinite(s).any():
+        m = (np.max(np.abs(s)) or 1.0) * 1.18
+        ax.set_xlim(-m, m)
+
+    sub = subtitle
+    if have_sig:
+        note = f"* {sig_label} < {alpha}   ** < 0.01   *** < 0.001"
+        sub = f"{subtitle}\n{note}" if subtitle else note
+    n_sub = (sub.count("\n") + 1) if sub else 0
+    headroom = 0.4 + 0.18 * n_sub + 0.16
+    top_frac = max(0.5, 1.0 - headroom / height)
+    fig.tight_layout(rect=(0.0, 0.0, 1.0, top_frac))
+    pos = ax.get_position()
+    fig.text(
+        pos.x0, 0.985, title, va="top", ha="left", fontsize=12.5, fontweight="bold", color=_INK
+    )
+    if sub:
+        fig.text(
+            pos.x0, 0.985 - 0.34 / height, sub, va="top", ha="left", fontsize=8.5, color=_MUTED
+        )
+    fig.savefig(output_path)
+    plt.close(fig)
+    logger.info("plot_enrichment_bars: wrote %s (%d terms)", output_path, len(s))
+    return output_path

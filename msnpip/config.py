@@ -50,11 +50,13 @@ class EngineConfig:
         "ensemble",
         "gsea",
     )
+    # Names resolve to the .gmt files bundled in ``msnpip/genes`` so enrichment
+    # runs fully offline (lake/pooled fall back to the engine's packaged sets).
     gene_sets: tuple[str, ...] = (
         "lake",
         "pooled",
         "GO_Biological_Process_2025",
-        "KEGG_2021_Human",
+        "KEGG_2021_H",
         "DisGeNET",
     )
     geneset_organism: str = "Human"
