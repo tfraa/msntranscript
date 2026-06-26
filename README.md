@@ -9,6 +9,11 @@
 > and instructions may change or break without notice while maintenance is
 > ongoing. Treat it as a preview, not a stable release.
 
+> ### 📌 Thesis snapshot
+> The exact version used for the MSc thesis is preserved on branch
+> [`v1-april`](https://github.com/tfraa/msntranscript/tree/v1-april)
+> (tag `v1.0-thesis`, commit `cc8c776`). `main` is the current, improved v2.
+
 A modular Python pipeline that builds **Morphometric Similarity Networks (MSN)** from
 FreeSurfer cortical data, contrasts node strength between groups, and links the regional
 patterns to gene expression from the **Allen Human Brain Atlas** via **PLS** and enrichment
