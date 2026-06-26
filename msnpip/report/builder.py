@@ -102,17 +102,25 @@ class ReportBuilder:
         plt.close(fig)
 
     def _heading(self, fig, title: str, *, subtitle: str | None = None, kicker: str | None = None):
-        """Draw a section heading band; return the y below which content starts."""
+        """Draw a section heading band; return the y below which content starts.
+
+        Long titles wrap onto multiple lines so they never run off the page; the
+        subtitle, rule and returned content-start shift down accordingly.
+        """
         if kicker:
             fig.text(0.07, 0.955, kicker.upper(), fontsize=9, color=_ACCENT, fontweight="bold")
-        fig.text(0.07, 0.93, title, fontsize=18, color=_INK, fontweight="bold", va="top")
-        y = 0.90
+        cur = 0.935
+        for line in self._wrap(title, width=42):
+            fig.text(0.07, cur, line, fontsize=18, color=_INK, fontweight="bold", va="top")
+            cur -= 0.034
         if subtitle:
-            fig.text(0.07, 0.905, subtitle, fontsize=10.5, color=_MUTED, va="top")
-            y = 0.88
-        line = plt.Line2D([0.07, 0.93], [y, y], color=_RULE, linewidth=1.0)
-        fig.add_artist(line)
-        return y - 0.02
+            cur += 0.004
+            for line in self._wrap(subtitle, width=74):
+                fig.text(0.07, cur, line, fontsize=10.5, color=_MUTED, va="top")
+                cur -= 0.024
+        rule_y = cur + 0.004
+        fig.add_artist(plt.Line2D([0.07, 0.93], [rule_y, rule_y], color=_RULE, linewidth=1.0))
+        return rule_y - 0.02
 
     def _paragraphs(self, fig, blocks, *, top: float, x: float = 0.07, width: float = 0.86):
         """Render a list of text blocks top-down.
@@ -171,15 +179,10 @@ class ReportBuilder:
         fig = self._open_page(pdf, landscape=True)
         if kicker:
             fig.text(0.05, 0.975, kicker.upper(), fontsize=9, color=_ACCENT, fontweight="bold")
-        fig.text(
-            0.05,
-            0.955 if full else 0.93,
-            title,
-            fontsize=14,
-            color=_INK,
-            fontweight="bold",
-            va="top",
-        )
+        ty = 0.955 if full else 0.935
+        for line in self._wrap(title, width=64):  # wrap long titles onto the page
+            fig.text(0.05, ty, line, fontsize=14, color=_INK, fontweight="bold", va="top")
+            ty -= 0.028
         # ``full`` maximises the image area (used for the dense similarity matrix
         # so its per-region labels stay legible on the page).
         box = [0.02, 0.03, 0.96, 0.90] if full else [0.04, 0.07, 0.92, 0.80]
@@ -530,30 +533,35 @@ class ReportBuilder:
         )
         self._close_page(pdf, fig)
 
-        summary = self._strength_top_bottom()
-        for group in self._ordered_groups(ctx):
-            if group in summary:
-                self._table_page(
-                    pdf,
-                    title=f"Node-strength extremes — group {group}",
-                    df=summary[group],
-                    kicker="Section 3 · Node strength",
-                    max_rows=12,
-                    intro=[
-                        (
-                            f"The 5 regions with the highest and the 5 with the lowest mean node "
-                            f"strength in group {group} (dimensionless).",
-                            "p",
-                        )
-                    ],
-                    caption="Node strength = sum of a region's morphometric-similarity edges.",
-                )
+        groups = self._ordered_groups(ctx)
+        # Grouped by TYPE: all brain surfaces first (control, then case), then all
+        # extremes tables — rather than interleaving per group.
+        for group in groups:
             self._figure_page(
                 pdf,
                 self.plots_dir / f"{group}_strength_surface.png",
                 kicker="Section 3 · Node strength",
                 title=f"Mean node strength on the cortex — group {group}",
                 caption="Mean node strength per region, inflated surface, both hemispheres (viridis).",
+            )
+        summary = self._strength_top_bottom()
+        for group in groups:
+            if group not in summary:
+                continue
+            self._table_page(
+                pdf,
+                title=f"Node-strength extremes — group {group}",
+                df=summary[group],
+                kicker="Section 3 · Node strength",
+                max_rows=12,
+                intro=[
+                    (
+                        f"The 5 regions with the highest and the 5 with the lowest mean node "
+                        f"strength in group {group} (dimensionless).",
+                        "p",
+                    )
+                ],
+                caption="Node strength = sum of a region's morphometric-similarity edges.",
             )
 
     def _ordered_groups(self, ctx: dict) -> list[str]:
@@ -869,13 +877,34 @@ class ReportBuilder:
                 gkey = gkey if isinstance(gkey, tuple) else (gkey,)
                 backend = str(gkey[0]) if "enrichment" in group_cols else ""
                 geneset = str(gkey[-1]) if "geneset" in group_cols else "gene set"
-                sort_cols = [c for c in ("fdr", "p_val", "p") if c in sub.columns]
-                if sort_cols:
-                    sub = sub.sort_values(sort_cols, kind="mergesort")
+                # Effect-score column (NES for GSEA, z_score for ensemble).
+                score_col = next(
+                    (
+                        c
+                        for c in ("nes", "z_score", "es", "category_score")
+                        if c in sub.columns and sub[c].notna().any()
+                    ),
+                    None,
+                )
+                if score_col is not None:
+                    sv = sub[sub[score_col].notna()]
+                    # Top 15 positive and top 15 negative, each ranked by |score|.
+                    pos = sv[sv[score_col] > 0].sort_values(score_col, ascending=False).head(15)
+                    neg = sv[sv[score_col] < 0].sort_values(score_col, ascending=True).head(15)
+                    sub = pd.concat([pos, neg], ignore_index=True)
+                    rank_note = (
+                        f"Top 15 positive and top 15 negative {score_col}, each ranked by "
+                        f"|{score_col}|."
+                    )
+                else:  # no signed effect column — fall back to significance order
+                    sort_cols = [c for c in ("fdr", "p_val", "p") if c in sub.columns]
+                    if sort_cols:
+                        sub = sub.sort_values(sort_cols, kind="mergesort")
+                    rank_note = "Ranked by FDR (then nominal p)."
                 keep = [c for c in prefer if c in sub.columns and sub[c].notna().any()] or list(
                     sub.columns
                 )
-                disp = sub[keep].head(20).reset_index(drop=True)
+                disp = sub[keep].reset_index(drop=True)
                 sig_col = next((c for c in ("fdr", "p_val", "p") if c in disp.columns), None)
                 bold = (
                     {
@@ -893,18 +922,18 @@ class ReportBuilder:
                     title=f"Enrichment terms — {geneset}{suffix}",
                     df=disp,
                     kicker=kicker,
-                    max_rows=20,
+                    max_rows=32,
                     bold_cells=bold,
                     intro=[
                         (
-                            f"Gene-set enrichment for {geneset}{suffix}, ranked by significance. "
+                            f"Gene-set enrichment for {geneset}{suffix}. "
                             "nes/es (GSEA) or z_score (ensemble) is the enrichment effect; "
                             f"p_val / fdr give nominal and FDR-corrected significance (bold fdr = "
                             f"significant at < {SIG_ALPHA}).",
                             "p",
                         )
                     ],
-                    caption="Ranked by FDR (then nominal p).",
+                    caption=rank_note,
                 )
 
         if not emitted:

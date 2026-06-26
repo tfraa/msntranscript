@@ -6,11 +6,22 @@ Phase 4 (added per user request).
 from __future__ import annotations
 
 import logging
+import textwrap
 
 import matplotlib.pyplot as plt
 import numpy as np
 
 from msnpip.viz.theme import configure_theme, significance_stars
+
+
+def _wrap_term(text, width: int = 30, max_lines: int = 2) -> str:
+    """Wrap a long gene-set term name onto up to *max_lines* lines."""
+    lines = textwrap.wrap(str(text), width=width) or [str(text)]
+    if len(lines) > max_lines:
+        lines = lines[:max_lines]
+        lines[-1] = lines[-1].rstrip(" .") + "…"
+    return "\n".join(lines)
+
 
 logger = logging.getLogger("msnpip.viz.regional")
 
@@ -257,8 +268,10 @@ def plot_enrichment_bars(
     is_sig = np.isfinite(g) & (g < alpha)
     have_sig = bool(np.isfinite(g).any())
 
-    height = max(2.6, 0.34 * len(s) + 1.4)
-    fig, ax = plt.subplots(figsize=(8.0, height))
+    # Taller rows + a wider figure so long term names (wrapped to 2 lines) get
+    # room without squeezing the bars.
+    height = max(3.0, 0.5 * len(s) + 1.6)
+    fig, ax = plt.subplots(figsize=(10.0, height))
     y = np.arange(len(s))
     for yi, v in zip(y, s):
         opacity = 1.0 if (is_sig[yi] or not have_sig) else 0.45
@@ -277,7 +290,7 @@ def plot_enrichment_bars(
 
     ax.axvline(0.0, color="#444444", linewidth=0.8)
     ax.set_yticks(y)
-    ax.set_yticklabels(t, fontsize=8.5, fontweight="bold")
+    ax.set_yticklabels([_wrap_term(x) for x in t], fontsize=8.0, fontweight="bold")
     for lbl in ax.get_xticklabels():
         lbl.set_fontweight("bold")
     ax.set_xlabel(score_label)
