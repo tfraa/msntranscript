@@ -133,9 +133,12 @@ def plot_hemisphere_bars(
         ax.set_axisbelow(True)
 
     axes[0].set_yticks(y)
-    axes[0].set_yticklabels(names, fontsize=7)
+    axes[0].set_yticklabels(names, fontsize=8, fontweight="bold")
     axes[0].set_ylim(-1, n)
     axes[0].invert_yaxis()  # alphabetical, top-to-bottom
+    for ax in axes:
+        for lbl in ax.get_xticklabels():
+            lbl.set_fontweight("bold")
 
     sub = subtitle
     if color_mode == "sign" and np.isfinite(sig).any():
@@ -176,22 +179,26 @@ def plot_msn_matrix(
     mat = np.asarray(matrix, dtype=float)
     labels = list(region_labels)
 
-    fig, ax = plt.subplots(figsize=(6.5, 5.6))
+    # Large square figure so EVERY region label is shown and stays legible.
+    n = len(labels)
+    side = max(9.0, 0.17 * n + 2.0)
+    fig, ax = plt.subplots(figsize=(side, side))
     im = ax.imshow(mat, cmap="viridis", aspect="equal", interpolation="nearest")
-    # Sparse ticks to keep ~68 labels legible.
-    step = max(1, len(labels) // 20)
-    idx = list(range(0, len(labels), step))
+    # Label every region (font scales down a little for larger parcellations).
+    tick_fs = 8.5 if n <= 40 else (7.0 if n <= 80 else 5.5)
+    idx = list(range(n))
     ax.set_xticks(idx)
-    ax.set_xticklabels([labels[i] for i in idx], rotation=90, fontsize=5.5)
+    ax.set_xticklabels(labels, rotation=90, fontsize=tick_fs, fontweight="bold")
     ax.set_yticks(idx)
-    ax.set_yticklabels([labels[i] for i in idx], fontsize=5.5)
-    ax.set_title(title, fontsize=12, fontweight="bold", loc="left")
+    ax.set_yticklabels(labels, fontsize=tick_fs, fontweight="bold")
+    ax.tick_params(length=0)
+    ax.set_title(title, fontsize=14, fontweight="bold", loc="left")
     if subtitle:
         ax.text(
-            0.0, 1.01, subtitle, transform=ax.transAxes, fontsize=8.5, va="bottom", color="#555555"
+            0.0, 1.005, subtitle, transform=ax.transAxes, fontsize=10, va="bottom", color="#555555"
         )
     cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    cbar.set_label("similarity", fontsize=9)
+    cbar.set_label("similarity", fontsize=11, fontweight="bold")
     fig.tight_layout()
     fig.savefig(output_path)
     plt.close(fig)
@@ -269,7 +276,9 @@ def plot_enrichment_bars(
 
     ax.axvline(0.0, color="#444444", linewidth=0.8)
     ax.set_yticks(y)
-    ax.set_yticklabels(t, fontsize=7.5)
+    ax.set_yticklabels(t, fontsize=8.5, fontweight="bold")
+    for lbl in ax.get_xticklabels():
+        lbl.set_fontweight("bold")
     ax.set_xlabel(score_label)
     ax.set_ylim(-1, len(s))
     if np.isfinite(s).any():

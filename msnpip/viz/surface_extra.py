@@ -37,7 +37,7 @@ def plot_surface_with_dorsal(
     value_column: str,
     title: str,
     output_path,
-    views: tuple[str, ...] = ("lateral", "medial", "dorsal"),
+    views: tuple[str, ...] = ("lateral", "medial"),
     mesh_kind: str = "pial",
     subtitle: str | None = None,
     diverging: bool = True,
@@ -137,63 +137,55 @@ def plot_surface_with_dorsal(
             kwargs["elev"] = elev
         brain.surface_view(ax, coords, triangles, vertex_values, **kwargs)
 
-    # Build the ordered panel list (per-hemisphere lateral/medial + a combined dorsal).
-    panels: list[tuple[str, object]] = []
-    for view in views:
-        if view == "lateral":
-            for h in present:
-                panels.append(
-                    (
-                        f"{_HEMI_LABEL[h]} lateral",
-                        lambda ax, h=h: _render_hemi(ax, h, _AZIM_LATERAL[h], None),
-                    )
-                )
-        elif view == "medial":
-            for h in present:
-                panels.append(
-                    (
-                        f"{_HEMI_LABEL[h]} medial",
-                        lambda ax, h=h: _render_hemi(ax, h, _AZIM_MEDIAL[h], None),
-                    )
-                )
-        else:  # dorsal — one panel, all present hemispheres from the top
+    # Grid layout: one ROW per hemisphere, one COLUMN per view (lateral, medial),
+    # so each hemisphere's views sit together (all-left, then all-right). Dorsal
+    # is intentionally omitted.
+    grid_views = [v for v in views if v in ("lateral", "medial")] or ["lateral", "medial"]
+    azim_for = {"lateral": _AZIM_LATERAL, "medial": _AZIM_MEDIAL}
+    nrows, ncols = len(present), len(grid_views)
 
-            def _render_dorsal(ax):
-                for h in present:
-                    _render_hemi(ax, h, _AZIM_DORSAL, _ELEV_DORSAL)
-
-            panels.append(("dorsal", _render_dorsal))
-
-    n = len(panels)
-    fig = plt.figure(figsize=(3.0 * n, 3.9))
+    fig_h = 3.1 * nrows + 1.6
+    fig = plt.figure(figsize=(3.3 * ncols, fig_h))
     fig.patch.set_facecolor("white")
 
-    margin = 0.02
-    panel_w = (1.0 - (n + 1) * margin) / n
-    for i, (label, render) in enumerate(panels):
-        left = margin + i * (panel_w + margin)
-        ax = fig.add_axes([left, 0.18, panel_w, 0.66], projection="3d")
-        render(ax)
-        fig.text(
-            left + panel_w / 2.0,
-            0.86,
-            label,
-            ha="center",
-            va="bottom",
-            fontsize=9.0,
-            color="#334155",
-        )
+    # Reserve a header band (title/subtitle) at the top and a colourbar at bottom.
+    # grid_top sits well below the subtitle so per-panel labels never overlap it.
+    header_top = 1.0 - 0.5 / fig_h
+    grid_top = 1.0 - 1.55 / fig_h
+    grid_bottom = 0.85 / fig_h
+    margin_x, gap_y = 0.02, 0.015 / nrows * 3
+    cell_w = (1.0 - (ncols + 1) * margin_x) / ncols
+    cell_h = (grid_top - grid_bottom - (nrows - 1) * gap_y) / nrows
 
-    fig.text(0.02, 0.975, title, ha="left", va="top", fontweight="bold", fontsize=12.5)
+    for i, hemi in enumerate(present):
+        for j, view in enumerate(grid_views):
+            left = margin_x + j * (cell_w + margin_x)
+            bottom = grid_top - (i + 1) * cell_h - i * gap_y
+            ax = fig.add_axes([left, bottom, cell_w, cell_h], projection="3d")
+            _render_hemi(ax, hemi, azim_for[view][hemi], None)
+            fig.text(
+                left + cell_w / 2.0,
+                bottom + cell_h - 0.005,
+                f"{_HEMI_LABEL[hemi]} {view}",
+                ha="center",
+                va="bottom",
+                fontsize=11.0,
+                fontweight="bold",
+                color="#334155",
+            )
+
+    fig.text(0.03, header_top, title, ha="left", va="top", fontweight="bold", fontsize=14.0)
     sub = subtitle or f"{atlas_id} atlas · {mesh_kind} surface · {value_column}"
-    fig.text(0.02, 0.93, sub, ha="left", va="top", fontsize=9.0, color="#555555")
+    fig.text(
+        0.03, header_top - 0.4 / fig_h, sub, ha="left", va="top", fontsize=10.0, color="#555555"
+    )
 
     mappable = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
     mappable.set_array([])
-    cbar_ax = fig.add_axes([0.37, 0.07, 0.26, 0.032])
+    cbar_ax = fig.add_axes([0.37, 0.045 / fig_h * 3, 0.26, 0.02])
     colorbar = fig.colorbar(mappable, cax=cbar_ax, orientation="horizontal")
     colorbar.set_ticks(cbar_ticks)
-    colorbar.set_label(value_column, fontsize=9.5)
+    colorbar.set_label(value_column, fontsize=11.0, fontweight="bold")
 
     out = brain.save_figure(fig, Path(output_path))
     logger.info(

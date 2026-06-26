@@ -67,13 +67,21 @@ class ReportBuilder:
     # ------------------------------------------------------------------
     def build(self, ctx: dict) -> Path | None:
         pdf_path = self.output_dir / "report.pdf"
-        with PdfPages(pdf_path) as pdf:
-            self._cover_page(pdf, ctx)
-            self._dataset_page(pdf, ctx)
-            self._msn_section(pdf, ctx)
-            self._strength_section(pdf, ctx)
-            for tag, res, cc, kk in ctx.get("contrasts", []):
-                self._contrast_section(pdf, ctx, tag, res, cc, kk)
+        # Disable tight-bbox cropping so every page keeps its full A4 portrait size
+        # (the plot theme sets savefig.bbox='tight', which would crop pages with
+        # wide images to landscape). Restored afterwards.
+        prev_bbox = matplotlib.rcParams.get("savefig.bbox")
+        matplotlib.rcParams["savefig.bbox"] = None
+        try:
+            with PdfPages(pdf_path) as pdf:
+                self._cover_page(pdf, ctx)
+                self._dataset_page(pdf, ctx)
+                self._msn_section(pdf, ctx)
+                self._strength_section(pdf, ctx)
+                for tag, res, cc, kk in ctx.get("contrasts", []):
+                    self._contrast_section(pdf, ctx, tag, res, cc, kk)
+        finally:
+            matplotlib.rcParams["savefig.bbox"] = prev_bbox
         logger.info("REPORT: wrote %s", pdf_path)
         return pdf_path
 
@@ -81,11 +89,14 @@ class ReportBuilder:
     # Low-level page primitives
     # ==================================================================
     def _open_page(self, pdf, *, landscape: bool = False):
-        fig = plt.figure(figsize=A4_LANDSCAPE if landscape else A4_PORTRAIT)
+        # Every report page is A4 portrait (the ``landscape`` flag is kept for
+        # call-site compatibility but intentionally ignored).
+        fig = plt.figure(figsize=A4_PORTRAIT)
         fig.patch.set_facecolor("white")
         return fig
 
     def _close_page(self, pdf, fig) -> None:
+        # savefig.bbox is forced off in build() so pages keep full A4 portrait.
         pdf.savefig(fig)
         plt.close(fig)
 
@@ -442,6 +453,26 @@ class ReportBuilder:
                 caption=f"Region × region mean similarity (viridis) · {self.cfg.engine.atlas} atlas.",
             )
 
+    def _strength_top_bottom(self, n: int = 6) -> dict:
+        """Per group, the regions with the highest / lowest mean node strength."""
+        path = self.output_dir / "mean_msn_per_group.csv"
+        if not path.exists():
+            return {}
+        try:
+            df = pd.read_csv(path)
+        except Exception:
+            return {}
+        out: dict = {}
+        for col in df.columns:
+            if not col.startswith("mean_strength_"):
+                continue
+            group = col[len("mean_strength_") :]
+            s = df[["region", col]].dropna().sort_values(col, ascending=False)
+            hi = s["region"].head(n).tolist()
+            lo = s["region"].tail(n).iloc[::-1].tolist()
+            out[group] = (hi, lo)
+        return out
+
     def _strength_section(self, pdf, ctx: dict) -> None:
         fig = self._open_page(pdf)
         top = self._heading(
@@ -450,19 +481,23 @@ class ReportBuilder:
             kicker="Section 3",
             subtitle="Where each group concentrates its morphometric similarity hubs",
         )
-        self._paragraphs(
-            fig,
-            [
-                (
-                    "Node strength maps below show, for each group, the mean regional node strength on "
-                    "the cortical surface and as a ranked bar chart. Both use a sequential viridis scale "
-                    "(brighter = stronger). These are descriptive group maps; the statistical contrast "
-                    "between groups follows in the next section.",
-                    "p",
-                ),
-            ],
-            top=top - 0.01,
-        )
+        blocks: list = [
+            (
+                "The surface maps below show, for each group, the mean regional node strength on the "
+                "cortex (sequential viridis scale, brighter = stronger). These are descriptive group "
+                "maps; the statistical contrast between groups follows in the next section.",
+                "p",
+            ),
+        ]
+        summary = self._strength_top_bottom()
+        for group in self._ordered_groups(ctx):
+            if group not in summary:
+                continue
+            hi, lo = summary[group]
+            blocks.append((f"Group {group}", "h"))
+            blocks.append((f"Highest node strength: {', '.join(hi)}.", "li"))
+            blocks.append((f"Lowest node strength: {', '.join(lo)}.", "li"))
+        self._paragraphs(fig, blocks, top=top - 0.01)
         self._close_page(pdf, fig)
 
         for group in self._ordered_groups(ctx):
@@ -472,13 +507,6 @@ class ReportBuilder:
                 kicker="Section 3 · Node strength",
                 title=f"Mean node strength on the cortex — group {group}",
                 caption="Mean node strength per region, inflated surface, both hemispheres (viridis).",
-            )
-            self._figure_page(
-                pdf,
-                self.plots_dir / f"{group}_strength_bars.png",
-                kicker="Section 3 · Node strength",
-                title=f"Mean node strength by region — group {group}",
-                caption="Left and right hemispheres, all regions in default order (viridis by value).",
             )
 
     def _ordered_groups(self, ctx: dict) -> list[str]:
@@ -550,6 +578,9 @@ class ReportBuilder:
         # (b) significant regions in writing + table.
         self._significant_regions_page(pdf, res, pretty, kicker)
 
+        # (b2) full per-region statistics table (all regions, paginated).
+        self._region_stats_pages(pdf, res, pretty, kicker)
+
         # (c) significant-only surface.
         self._figure_page(
             pdf,
@@ -616,6 +647,38 @@ class ReportBuilder:
             caption="Positive beta = higher node strength in the case group.",
         )
         self._close_page(pdf, fig)
+
+    def _region_stats_pages(self, pdf, res, pretty: str, kicker: str) -> None:
+        """All regions × (beta, t, Cohen's d, p, FDR), most significant first, paginated."""
+        tbl = res.stats_table().sort_values(["fdr", "p"], kind="mergesort").reset_index(drop=True)
+        chunk = 40
+        n = len(tbl)
+        total = max(1, (n + chunk - 1) // chunk)
+        for page, start in enumerate(range(0, n, chunk), start=1):
+            part = tbl.iloc[start : start + chunk]
+            title = "All regional statistics" + (f" ({page}/{total})" if total > 1 else "")
+            intro = (
+                [
+                    (
+                        "Group-effect statistics for every region (case vs control), sorted by "
+                        "FDR. beta = node-strength difference; t = its t-statistic; cohen_d = "
+                        "covariate-adjusted standardized effect; p / fdr = nominal and "
+                        "FDR-corrected significance.",
+                        "p",
+                    )
+                ]
+                if page == 1
+                else None
+            )
+            self._table_page(
+                pdf,
+                title=title,
+                df=part,
+                kicker=kicker,
+                intro=intro,
+                max_rows=chunk,
+                caption="Positive beta / Cohen's d = higher node strength in the case group.",
+            )
 
     @staticmethod
     def _p(v) -> str:
@@ -754,9 +817,10 @@ class ReportBuilder:
                 "enrichment",
                 "geneset",
                 "Term",
+                "es",
+                "nes",
                 "z_score",
                 "category_score",
-                "matched_size",
                 "p_val",
                 "p",
                 "fdr",

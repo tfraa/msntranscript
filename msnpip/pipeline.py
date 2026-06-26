@@ -198,6 +198,8 @@ class Pipeline:
             )
             tag = _tag(case, control)
             diff[f"{tag}_{res.stat_type}"] = res.regional_stat
+            # Full per-region statistics (beta, t, Cohen's d, p, FDR) for the report.
+            self._csv(res.stats_table(), f"{tag}_region_stats")
             contrasts.append((tag, res, cc, kk))
         self._csv(diff, "case_control_difference_maps")
         self.ctx["contrasts"] = contrasts
@@ -372,19 +374,6 @@ class Pipeline:
             if idx.size == 0:
                 continue
             mean_strength = sm.strength[idx].mean(axis=0)
-            try:
-                plot_hemisphere_bars(
-                    mean_strength,
-                    sm.region_labels,
-                    value_label="mean node strength",
-                    title=f"Mean node strength by region — group {group}",
-                    subtitle=f"{self.cfg.engine.atlas} atlas · {idx.size} subjects · all regions",
-                    output_path=self.plots_dir / f"{group}_strength_bars.png",
-                    color_mode="sequential",
-                    cmap="viridis",
-                )
-            except Exception as exc:
-                logger.warning("FIGURES: strength bars for group %s failed: %s", group, exc)
             try:
                 vec, labels_df = align_strength_to_atlas(
                     mean_strength,

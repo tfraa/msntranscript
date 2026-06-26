@@ -300,9 +300,10 @@ class GroupContrastResult:
     tvalue: np.ndarray | None = None
     pvalue: np.ndarray | None = None
     pvalue_fdr: np.ndarray | None = None
+    cohen_d: np.ndarray | None = None
 
     def stats_table(self) -> pd.DataFrame:
-        """Per-region group-effect table (region, beta, t, p, fdr)."""
+        """Per-region group-effect table (region, beta, t, cohen_d, p, fdr)."""
         n = len(self.region_labels)
         nan = np.full(n, np.nan)
         return pd.DataFrame(
@@ -310,6 +311,7 @@ class GroupContrastResult:
                 "region": list(self.region_labels),
                 "beta": self.beta if self.beta is not None else nan,
                 "t": self.tvalue if self.tvalue is not None else nan,
+                "cohen_d": self.cohen_d if self.cohen_d is not None else nan,
                 "p": self.pvalue if self.pvalue is not None else nan,
                 "fdr": self.pvalue_fdr if self.pvalue_fdr is not None else nan,
             }
@@ -454,18 +456,21 @@ def regional_group_contrast(
         p_arr[r] = res.pvalues[gi]
     fdr_arr = benjamini_hochberg(p_arr)
 
+    # Always compute Cohen's d (covariate-residualised standardized mean diff) so
+    # the per-region stats table can report it alongside beta/t/p/FDR.
+    cov_design = (
+        build_design_matrix(sub[covariates], covariates, add_intercept=True) if covariates else None
+    )
+    case_mask = group_indicator.to_numpy().astype(bool)
+    d_arr = np.full(n_regions, np.nan)
+    for r in range(n_regions):
+        y = strength[:, r]
+        if cov_design is not None:
+            y = residualize(y, cov_design, add_intercept=False)
+        d_arr[r] = _cohen_d(y[case_mask], y[~case_mask])
+
     if stat == "cohen_d":
-        # Residualize out covariates (excluding group), then standardized diff.
-        if covariates:
-            cov_design = build_design_matrix(sub[covariates], covariates, add_intercept=True)
-        else:
-            cov_design = None
-        case_mask = group_indicator.to_numpy().astype(bool)
-        for r in range(n_regions):
-            y = strength[:, r]
-            if cov_design is not None:
-                y = residualize(y, cov_design, add_intercept=False)
-            regional_stat[r] = _cohen_d(y[case_mask], y[~case_mask])
+        regional_stat = d_arr.copy()
     elif stat == "beta":
         regional_stat = beta_arr.copy()
     else:
@@ -495,4 +500,5 @@ def regional_group_contrast(
         tvalue=t_arr,
         pvalue=p_arr,
         pvalue_fdr=fdr_arr,
+        cohen_d=d_arr,
     )
