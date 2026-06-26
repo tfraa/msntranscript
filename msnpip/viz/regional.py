@@ -174,31 +174,32 @@ def plot_msn_matrix(
     output_path,
     subtitle: str | None = None,
 ):
-    """Heatmap of a region×region morphometric similarity matrix (NaN diagonal)."""
+    """Heatmap of a region×region morphometric similarity matrix (NaN diagonal).
+
+    Every region is labelled with its full name at a moderate font (no grid),
+    on a normally-proportioned square figure.
+    """
     configure_theme()
     mat = np.asarray(matrix, dtype=float)
     labels = list(region_labels)
 
-    # Large square figure so EVERY region label is shown and stays legible.
     n = len(labels)
-    side = max(9.0, 0.17 * n + 2.0)
-    fig, ax = plt.subplots(figsize=(side, side))
+    fig, ax = plt.subplots(figsize=(8.5, 8.5))
     im = ax.imshow(mat, cmap="viridis", aspect="equal", interpolation="nearest")
-    # Label every region (font scales down a little for larger parcellations).
-    tick_fs = 8.5 if n <= 40 else (7.0 if n <= 80 else 5.5)
+    tick_fs = 9.0 if n <= 40 else (7.0 if n <= 80 else 5.5)
     idx = list(range(n))
     ax.set_xticks(idx)
     ax.set_xticklabels(labels, rotation=90, fontsize=tick_fs, fontweight="bold")
     ax.set_yticks(idx)
     ax.set_yticklabels(labels, fontsize=tick_fs, fontweight="bold")
     ax.tick_params(length=0)
-    ax.set_title(title, fontsize=14, fontweight="bold", loc="left")
+    ax.set_title(title, fontsize=15, fontweight="bold", loc="left")
     if subtitle:
         ax.text(
-            0.0, 1.005, subtitle, transform=ax.transAxes, fontsize=10, va="bottom", color="#555555"
+            0.0, 1.004, subtitle, transform=ax.transAxes, fontsize=10, va="bottom", color="#555555"
         )
-    cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    cbar.set_label("similarity", fontsize=11, fontweight="bold")
+    cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.02)
+    cbar.set_label("similarity", fontsize=12, fontweight="bold")
     fig.tight_layout()
     fig.savefig(output_path)
     plt.close(fig)

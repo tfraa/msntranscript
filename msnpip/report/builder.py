@@ -7,16 +7,17 @@ written narrative, tables and figures:
     1. Cover (run configuration + resolved spatial null)
     2. Dataset description (cohort, groups, covariates, morphometric metrics)
     3. MSN construction (method) + per-group mean similarity matrices (viridis)
-    4. Node strength per group (brain surfaces + ranked bars, viridis)
+    4. Node strength per group (brain surfaces + per-group top-5/bottom-5 table)
     5. For each contrast:
-         a. Case-control difference (bar chart + brain surfaces)
-         b. Significant regions, in writing, with beta / t / p / FDR
-         c. Brain surfaces of the FDR-significant regions only
-         d. PLS parameters (explained variance, p-value per component)
-         e. Top 20 positive / 20 negative PLS genes
-         f. Enrichment (dotplots + table of the most significant terms)
+         a. Case-control t-value bars + brain surfaces (2×2 lateral/medial grid)
+         b. Significant regions, in writing, with beta / t / Cohen's d / p / FDR
+         c. Per-region statistics tables, one page per hemisphere (sig FDR bold)
+         d. Brain surfaces of the FDR-significant regions only
+         e. PLS parameters + top 20 positive / 20 negative PLS genes
+         f. Enrichment: bar plots + one term table per gene set (× backend)
 
-Figures are produced by the FIGURES stage and read back from ``plots/``;
+All pages are A4 portrait.  Figures are produced by the FIGURES stage and read
+back from ``plots/``;
 tables are read from the curated CSVs and from the in-memory contrast results.
 Every section is defensive: missing data degrades to a short note rather than
 failing the report.
@@ -151,7 +152,14 @@ class ReportBuilder:
         return textwrap.wrap(text, width=width) or [""]
 
     def _figure_page(
-        self, pdf, png: Path, *, title: str, caption: str | None = None, kicker: str | None = None
+        self,
+        pdf,
+        png: Path,
+        *,
+        title: str,
+        caption: str | None = None,
+        kicker: str | None = None,
+        full: bool = False,
     ) -> bool:
         if not png or not Path(png).exists():
             return False
@@ -162,12 +170,23 @@ class ReportBuilder:
             return False
         fig = self._open_page(pdf, landscape=True)
         if kicker:
-            fig.text(0.05, 0.96, kicker.upper(), fontsize=9, color=_ACCENT, fontweight="bold")
-        fig.text(0.05, 0.93, title, fontsize=15, color=_INK, fontweight="bold", va="top")
-        ax = fig.add_axes([0.04, 0.07, 0.92, 0.80])
+            fig.text(0.05, 0.975, kicker.upper(), fontsize=9, color=_ACCENT, fontweight="bold")
+        fig.text(
+            0.05,
+            0.955 if full else 0.93,
+            title,
+            fontsize=14,
+            color=_INK,
+            fontweight="bold",
+            va="top",
+        )
+        # ``full`` maximises the image area (used for the dense similarity matrix
+        # so its per-region labels stay legible on the page).
+        box = [0.02, 0.03, 0.96, 0.90] if full else [0.04, 0.07, 0.92, 0.80]
+        ax = fig.add_axes(box)
         ax.axis("off")
         ax.imshow(img)
-        if caption:
+        if caption and not full:
             fig.text(0.05, 0.045, caption, fontsize=8.5, color=_MUTED, va="bottom")
         self._close_page(pdf, fig)
         return True
@@ -182,8 +201,13 @@ class ReportBuilder:
         caption: str | None = None,
         intro=None,
         max_rows: int = 34,
+        bold_cells: set | None = None,
     ) -> None:
-        """Render a DataFrame as a styled table (paginated if long)."""
+        """Render a DataFrame as a styled table (paginated if long).
+
+        ``bold_cells`` is an optional set of ``(row_index, column_name)`` pairs
+        (row index into the displayed rows) whose cell text is drawn bold.
+        """
         rows = df.reset_index(drop=True)
         truncated = len(rows) > max_rows
         if truncated:
@@ -195,10 +219,12 @@ class ReportBuilder:
         cap = caption or ""
         if truncated:
             cap = (cap + "  " if cap else "") + f"(showing first {max_rows} of {len(df)} rows)"
-        self._draw_table(fig, rows, top=top - 0.01, caption=cap)
+        self._draw_table(fig, rows, top=top - 0.01, caption=cap, bold_cells=bold_cells)
         self._close_page(pdf, fig)
 
-    def _draw_table(self, fig, df: pd.DataFrame, *, top: float, caption: str = "") -> None:
+    def _draw_table(
+        self, fig, df: pd.DataFrame, *, top: float, caption: str = "", bold_cells: set | None = None
+    ) -> None:
         ax = fig.add_axes([0.06, 0.07, 0.88, top - 0.08])
         ax.axis("off")
         cell_text = [
@@ -217,7 +243,9 @@ class ReportBuilder:
         table.set_fontsize(8.5)
         table.scale(1.0, 1.35)
         ncol = df.shape[1]
-        for (r, _c), cell in table.get_celld().items():
+        cols = list(df.columns)
+        bold_cells = bold_cells or set()
+        for (r, c), cell in table.get_celld().items():
             cell.set_edgecolor("#ffffff")
             cell.set_linewidth(1.0)
             if r == 0:
@@ -225,7 +253,8 @@ class ReportBuilder:
                 cell.set_text_props(color="white", fontweight="bold")
             else:
                 cell.set_facecolor(_ROW_ALT if r % 2 == 0 else "white")
-                cell.set_text_props(color=_INK)
+                weight = "bold" if (r - 1, cols[c]) in bold_cells else "normal"
+                cell.set_text_props(color=_INK, fontweight=weight)
         with contextlib.suppress(Exception):  # matplotlib version drift
             table.auto_set_column_width(col=list(range(ncol)))
         if caption:
@@ -453,8 +482,8 @@ class ReportBuilder:
                 caption=f"Region × region mean similarity (viridis) · {self.cfg.engine.atlas} atlas.",
             )
 
-    def _strength_top_bottom(self, n: int = 6) -> dict:
-        """Per group, the regions with the highest / lowest mean node strength."""
+    def _strength_top_bottom(self, n: int = 5) -> dict:
+        """Per group, a table of the top-n highest and n lowest node-strength regions."""
         path = self.output_dir / "mean_msn_per_group.csv"
         if not path.exists():
             return {}
@@ -468,9 +497,12 @@ class ReportBuilder:
                 continue
             group = col[len("mean_strength_") :]
             s = df[["region", col]].dropna().sort_values(col, ascending=False)
-            hi = s["region"].head(n).tolist()
-            lo = s["region"].tail(n).iloc[::-1].tolist()
-            out[group] = (hi, lo)
+            hi = s.head(n).copy()
+            hi.insert(0, "extreme", "highest")
+            lo = s.tail(n).iloc[::-1].copy()
+            lo.insert(0, "extreme", "lowest")
+            table = pd.concat([hi, lo], ignore_index=True).rename(columns={col: "node strength"})
+            out[group] = table
         return out
 
     def _strength_section(self, pdf, ctx: dict) -> None:
@@ -481,26 +513,41 @@ class ReportBuilder:
             kicker="Section 3",
             subtitle="Where each group concentrates its morphometric similarity hubs",
         )
-        blocks: list = [
-            (
-                "The surface maps below show, for each group, the mean regional node strength on the "
-                "cortex (sequential viridis scale, brighter = stronger). These are descriptive group "
-                "maps; the statistical contrast between groups follows in the next section.",
-                "p",
-            ),
-        ]
-        summary = self._strength_top_bottom()
-        for group in self._ordered_groups(ctx):
-            if group not in summary:
-                continue
-            hi, lo = summary[group]
-            blocks.append((f"Group {group}", "h"))
-            blocks.append((f"Highest node strength: {', '.join(hi)}.", "li"))
-            blocks.append((f"Lowest node strength: {', '.join(lo)}.", "li"))
-        self._paragraphs(fig, blocks, top=top - 0.01)
+        self._paragraphs(
+            fig,
+            [
+                (
+                    "The surface maps below show, for each group, the mean regional node strength on the "
+                    "cortex (sequential viridis scale, brighter = stronger). Node strength is the sum "
+                    "of a region's morphometric-similarity edges; similarity is a dimensionless ratio "
+                    "in (0, 1], so node strength is a dimensionless network measure (no physical unit). "
+                    "The per-group tables below list each group's 5 highest- and 5 lowest-strength "
+                    "regions; the statistical contrast between groups follows in the next section.",
+                    "p",
+                ),
+            ],
+            top=top - 0.01,
+        )
         self._close_page(pdf, fig)
 
+        summary = self._strength_top_bottom()
         for group in self._ordered_groups(ctx):
+            if group in summary:
+                self._table_page(
+                    pdf,
+                    title=f"Node-strength extremes — group {group}",
+                    df=summary[group],
+                    kicker="Section 3 · Node strength",
+                    max_rows=12,
+                    intro=[
+                        (
+                            f"The 5 regions with the highest and the 5 with the lowest mean node "
+                            f"strength in group {group} (dimensionless).",
+                            "p",
+                        )
+                    ],
+                    caption="Node strength = sum of a region's morphometric-similarity edges.",
+                )
             self._figure_page(
                 pdf,
                 self.plots_dir / f"{group}_strength_surface.png",
@@ -649,34 +696,41 @@ class ReportBuilder:
         self._close_page(pdf, fig)
 
     def _region_stats_pages(self, pdf, res, pretty: str, kicker: str) -> None:
-        """All regions × (beta, t, Cohen's d, p, FDR), most significant first, paginated."""
-        tbl = res.stats_table().sort_values(["fdr", "p"], kind="mergesort").reset_index(drop=True)
-        chunk = 40
-        n = len(tbl)
-        total = max(1, (n + chunk - 1) // chunk)
-        for page, start in enumerate(range(0, n, chunk), start=1):
-            part = tbl.iloc[start : start + chunk]
-            title = "All regional statistics" + (f" ({page}/{total})" if total > 1 else "")
-            intro = (
-                [
-                    (
-                        "Group-effect statistics for every region (case vs control), sorted by "
-                        "FDR. beta = node-strength difference; t = its t-statistic; cohen_d = "
-                        "covariate-adjusted standardized effect; p / fdr = nominal and "
-                        "FDR-corrected significance.",
-                        "p",
-                    )
-                ]
-                if page == 1
-                else None
+        """Per-region (beta, t, Cohen's d, p, FDR), one page per hemisphere.
+
+        Significant FDR values (< alpha) are drawn bold.
+        """
+        tbl = res.stats_table()
+        for hemi_code, hemi_name in (("lh", "Left"), ("rh", "Right")):
+            part = (
+                tbl[tbl["region"].astype(str).str.startswith(f"{hemi_code}_")]
+                .sort_values(["fdr", "p"], kind="mergesort")
+                .reset_index(drop=True)
             )
+            if part.empty:
+                continue
+            bold = {
+                (i, "fdr")
+                for i, v in enumerate(part["fdr"])
+                if pd.notna(v) and float(v) < SIG_ALPHA
+            }
+            intro = [
+                (
+                    f"Group-effect statistics for every {hemi_name.lower()}-hemisphere region "
+                    "(case vs control), sorted by FDR. beta = node-strength difference; t = its "
+                    "t-statistic; cohen_d = covariate-adjusted standardized effect; p / fdr = "
+                    f"nominal and FDR-corrected significance (bold fdr = significant at < {SIG_ALPHA}).",
+                    "p",
+                )
+            ]
             self._table_page(
                 pdf,
-                title=title,
+                title=f"Regional statistics — {hemi_name} hemisphere",
                 df=part,
                 kicker=kicker,
                 intro=intro,
-                max_rows=chunk,
+                max_rows=40,
+                bold_cells=bold,
                 caption="Positive beta / Cohen's d = higher node strength in the case group.",
             )
 
@@ -799,49 +853,59 @@ class ReportBuilder:
                 caption=png.stem.replace(tag + "_", "").replace("_", " "),
             ):
                 emitted = True
-        # Enrichment table(s) — most significant terms.
-        files = self._glob_tagged(f"{tag}*_enrichment.csv")
-        for path in files:
+        # Enrichment table(s) — most significant terms, one table per gene set
+        # (and per backend when both ensemble and GSEA were run).
+        prefer = ["Term", "es", "nes", "z_score", "category_score", "p_val", "p", "fdr"]
+        for path in self._glob_tagged(f"{tag}*_enrichment.csv"):
             try:
                 df = pd.read_csv(path)
             except Exception:
                 continue
             if df.empty:
                 continue
-            emitted = True
-            sort_cols = [c for c in ("fdr", "p_val", "p") if c in df.columns]
-            if sort_cols:
-                df = df.sort_values(sort_cols, kind="mergesort")
-            prefer = [
-                "method",
-                "enrichment",
-                "geneset",
-                "Term",
-                "es",
-                "nes",
-                "z_score",
-                "category_score",
-                "p_val",
-                "p",
-                "fdr",
-            ]
-            keep = [c for c in prefer if c in df.columns] or list(df.columns)
-            self._table_page(
-                pdf,
-                title="Most significant enrichment terms",
-                df=df[keep],
-                kicker=kicker,
-                max_rows=20,
-                intro=[
-                    (
-                        "Gene-set enrichment of the PLS-weighted genes, ranked by significance. "
-                        "z_score is the enrichment effect; p_val / fdr give nominal and "
-                        "FDR-corrected significance.",
-                        "p",
-                    )
-                ],
-                caption="Ranked by FDR (then nominal p).",
-            )
+            group_cols = [c for c in ("enrichment", "geneset") if c in df.columns]
+            groups = df.groupby(group_cols) if group_cols else [((), df)]
+            for gkey, sub in groups:
+                gkey = gkey if isinstance(gkey, tuple) else (gkey,)
+                backend = str(gkey[0]) if "enrichment" in group_cols else ""
+                geneset = str(gkey[-1]) if "geneset" in group_cols else "gene set"
+                sort_cols = [c for c in ("fdr", "p_val", "p") if c in sub.columns]
+                if sort_cols:
+                    sub = sub.sort_values(sort_cols, kind="mergesort")
+                keep = [c for c in prefer if c in sub.columns and sub[c].notna().any()] or list(
+                    sub.columns
+                )
+                disp = sub[keep].head(20).reset_index(drop=True)
+                sig_col = next((c for c in ("fdr", "p_val", "p") if c in disp.columns), None)
+                bold = (
+                    {
+                        (i, sig_col)
+                        for i, v in enumerate(disp[sig_col])
+                        if pd.notna(v) and float(v) < SIG_ALPHA
+                    }
+                    if sig_col
+                    else set()
+                )
+                emitted = True
+                suffix = f" ({backend})" if backend else ""
+                self._table_page(
+                    pdf,
+                    title=f"Enrichment terms — {geneset}{suffix}",
+                    df=disp,
+                    kicker=kicker,
+                    max_rows=20,
+                    bold_cells=bold,
+                    intro=[
+                        (
+                            f"Gene-set enrichment for {geneset}{suffix}, ranked by significance. "
+                            "nes/es (GSEA) or z_score (ensemble) is the enrichment effect; "
+                            f"p_val / fdr give nominal and FDR-corrected significance (bold fdr = "
+                            f"significant at < {SIG_ALPHA}).",
+                            "p",
+                        )
+                    ],
+                    caption="Ranked by FDR (then nominal p).",
+                )
 
         if not emitted:
             self._enrichment_missing_page(pdf, tag, kicker, pretty)
