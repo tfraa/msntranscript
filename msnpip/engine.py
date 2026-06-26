@@ -278,16 +278,28 @@ def _run_pls_fit_once_enrich_many(
     """
     enable_annot_surface_nulls()
     enable_gsea_compat()
-    from imaging_transcriptomics.models import PLSResult
-    from imaging_transcriptomics.nulls import permute_scan_values
-    from imaging_transcriptomics.pls import PLSAnalysis
-    from imaging_transcriptomics.scan import regional_values_frame
-    from imaging_transcriptomics.serialization import write_result_bundle
-    from imaging_transcriptomics.workflows.shared import (
-        pls_components,
-        prepare_analysis_inputs,
-        result_metadata,
-    )
+    # These reach into the *pinned* engine's internal API (so PLS can be fit once
+    # and enriched per gene set). If the engine ever moves, fail fast with a clear
+    # message instead of an opaque ImportError mid-run.
+    try:
+        from imaging_transcriptomics.models import PLSResult
+        from imaging_transcriptomics.nulls import permute_scan_values
+        from imaging_transcriptomics.pls import PLSAnalysis
+        from imaging_transcriptomics.scan import regional_values_frame
+        from imaging_transcriptomics.serialization import write_result_bundle
+        from imaging_transcriptomics.workflows.shared import (
+            pls_components,
+            prepare_analysis_inputs,
+            result_metadata,
+        )
+    except ImportError as exc:  # pragma: no cover - engine layout drift
+        raise MsnpipEngineError(
+            "msnpip's fit-once/enrich-many PLS path depends on the pinned "
+            "imaging-transcriptomics internal API, which appears to have changed "
+            f"({exc}). Re-pin the engine to commit e6a2c237 or update "
+            "engine._run_pls_fit_once_enrich_many to the new layout.",
+            cause=exc,
+        ) from exc
 
     primary = _primary_enrichment(cfg.enrichment_methods)
     backends = [m for m in ("ensemble", "gsea", "ora") if m in cfg.enrichment_methods]
