@@ -88,7 +88,10 @@ def plot_hemisphere_bars(
     y = np.arange(n)
 
     finite = values[np.isfinite(values)]
-    norm = cmap_obj = None
+    # Default norm/cmap (used only in sequential mode; the else-branch below resets
+    # them to the data range). Pre-set with real objects so they are never None.
+    norm = plt.Normalize(vmin=0.0, vmax=1.0)
+    cmap_obj = plt.get_cmap(cmap)
     if color_mode == "sign":
         xmax = (float(np.max(np.abs(finite))) if finite.size else 1.0) or 1.0
         xlim = (-1.15 * xmax, 1.15 * xmax)
@@ -164,7 +167,7 @@ def plot_hemisphere_bars(
     if color_mode != "sign":
         sm = plt.cm.ScalarMappable(norm=norm, cmap=cmap_obj)
         sm.set_array([])
-        cbar_ax = fig.add_axes([0.92, 0.18, 0.015, 0.55])
+        cbar_ax = fig.add_axes((0.92, 0.18, 0.015, 0.55))
         fig.colorbar(sm, cax=cbar_ax).set_label(value_label, fontsize=9)
 
     # In-figure title omitted — the report page supplies the title (avoids

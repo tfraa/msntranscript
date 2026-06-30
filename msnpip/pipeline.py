@@ -25,6 +25,7 @@ import shutil
 import warnings
 from dataclasses import replace
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -114,6 +115,9 @@ class Pipeline:
         if io.dataframe is not None:
             df = read_table(io.dataframe, sep=io.sep, decimal=io.decimal, sheet=io.sheet)
         else:
+            # VALIDATE guarantees exactly one input mode; reaching here means a
+            # FreeSurfer directory was given.
+            assert io.freesurfer_dir is not None
             kind = detect_input_kind(io.freesurfer_dir)
             if kind == "feature_tables":
                 feats = read_feature_tables(io.freesurfer_dir, sep=io.sep, decimal=io.decimal)
@@ -151,7 +155,8 @@ class Pipeline:
         if self.cfg.io.id_col and self.cfg.io.id_col in df.columns:
             overrides["id_col"] = self.cfg.io.id_col
         if overrides:
-            schema = replace(schema, **overrides)
+            # dataclasses.replace with a dynamic **dict trips mypy's overload check.
+            schema = replace(schema, **overrides)  # type: ignore[arg-type]
         validate_schema(
             df,
             schema,
@@ -230,7 +235,9 @@ class Pipeline:
 
     def _stage_transcriptomics(self) -> None:
         cfg = self.cfg
-        hemis = ["left", "both"] if cfg.engine.compare_hemispheres else [cfg.engine.hemisphere]
+        hemis: list[Literal["left", "both"]] = (
+            ["left", "both"] if cfg.engine.compare_hemispheres else [cfg.engine.hemisphere]
+        )
         staging = self.out_dir / ".engine"
         self.plots_dir.mkdir(parents=True, exist_ok=True)
         tx = []

@@ -117,7 +117,9 @@ def _detect_decimal(raw: str, sep: str) -> str:
 
 def _read_excel(path: Path, sheet: str | int | None) -> pd.DataFrame:
     try:
-        return pd.read_excel(path, sheet_name=sheet, engine="openpyxl")
+        # sheet_name=None would return a dict of every sheet; default to the first
+        # so this always yields a single DataFrame.
+        return pd.read_excel(path, sheet_name=0 if sheet is None else sheet, engine="openpyxl")
     except Exception as exc:
         raise MsnpipIOError(f"Failed to read Excel file '{path.name}': {exc}") from exc
 

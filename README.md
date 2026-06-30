@@ -160,19 +160,26 @@ Feature columns follow `{hemisphere}_{region}_{metric}`, e.g. `lh_superiorfronta
 
 ## Output tree
 
+A curated, flat set — CSVs, a `plots/` folder, and one `report.pdf` (`<tag>` is
+`<case>_vs_<ctrl>`). The verbose engine bundle is staged to a temporary `.engine/`
+folder, curated into these files, then deleted — no `manifest.json`, no pickle.
+
 ```
 out/
-  00_inputs/          merged_data.csv  schema.json  resolved_config.yaml  merge_report.json
-  01_msn/             strength_maps.csv  global_strength.csv  dropped_subjects.json
-                      per_subject_msn/<id>.npz
-  02_stats/           contrasts/<case>_vs_<ctrl>_contrast.csv
-                      correlation/<variable>__<scope>.csv
-                      sensitivity/<case>_vs_<ctrl>__drop_<cov>.csv
-  03_transcriptomics/ <case>_vs_<ctrl>/{pls,corr}/   ← engine bundle (TSV/JSON/PNG)
-  04_figures/         distributions/  surface/  correlation/
-  05_report/          Report.pdf  run_log.txt
-  manifest.json       sha256 of every artifact + msnpip/engine versions + seed + resolved config
+  merged_dataset.csv                  validated, merged input table
+  strength_maps.csv                   per-subject node strength per region
+  mean_msn_per_group.csv              group-mean node strength per region
+  case_control_difference_maps.csv    per-contrast regional contrast map
+  <tag>_region_stats.csv              per-region beta/t/cohen_d/p/fdr
+  <tag>_pls.csv  <tag>_pls_summary.csv  PLS gene results + component variance
+  <tag>_corr.csv                      correlation gene results (only if --method corr)
+  <tag>_enrichment.csv                enrichment terms per backend × gene set
+  plots/                              violin, t-value bars, surfaces, matrices, enrichment
+  report.pdf                          assembled A4-portrait report
 ```
+
+See [docs/outputs.md](docs/outputs.md) for a column-by-column reference and
+[docs/tutorial.md](docs/tutorial.md) for a runnable first run on synthetic data.
 
 ---
 
@@ -184,7 +191,7 @@ docker build -f docker/Dockerfile -t msnpip:2.0 .
 docker run --rm -v "$PWD/data:/data:ro" -v "$PWD/out:/out" msnpip:2.0 \
   full --dataframe /data/merged.csv --output /out \
   --group-col group --case FTD --control HC \
-  --predictors age sex tiv --atlas dk --method pls --ncomp 1 \
+  --predictors age sex tiv --method pls --ncomp 1 \
   --n-perm 1000 --enrichment ensemble --seed 1234
 ```
 
@@ -206,8 +213,10 @@ offline.
 | Site covariate | always one-hot |
 | Defaults | atlas `dk`, engine hemisphere `left`, regions `cort`, n-perm 10,000 |
 
-See [docs/statistics.md](docs/statistics.md) and [docs/engine_contract.md](docs/engine_contract.md)
-for details, and [docs/adding_an_atlas.md](docs/adding_an_atlas.md) to extend beyond DK.
+New here? Start with [docs/tutorial.md](docs/tutorial.md) (a runnable first run) and
+[docs/outputs.md](docs/outputs.md) (what each output file means). See
+[docs/statistics.md](docs/statistics.md) and [docs/engine_contract.md](docs/engine_contract.md)
+for methods, and [docs/adding_an_atlas.md](docs/adding_an_atlas.md) to extend beyond DK.
 
 ---
 

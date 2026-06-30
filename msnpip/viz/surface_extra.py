@@ -108,7 +108,7 @@ def plot_surface_with_dorsal(
     if diverging:
         vmax = float(np.max(np.abs(finite))) or 1.0
         vmin = -vmax
-        norm = mcolors.TwoSlopeNorm(vmin=vmin, vcenter=0.0, vmax=vmax)
+        norm: mcolors.Normalize = mcolors.TwoSlopeNorm(vmin=vmin, vcenter=0.0, vmax=vmax)
         cbar_ticks = [vmin, 0.0, vmax]
         cmap = plt.get_cmap(cmap_name or "RdBu_r")
     else:

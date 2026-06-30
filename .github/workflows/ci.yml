@@ -5,6 +5,9 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  schedule:
+    - cron: "0 3 * * *" # nightly 03:00 UTC — real-engine slow suite
+  workflow_dispatch: {} # allow manual runs (incl. the slow suite)
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -18,13 +21,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python -m pip install --upgrade pip ruff mypy
+      - run: python -m pip install --upgrade pip ruff
       - name: ruff check
         run: ruff check msnpip tests
       - name: ruff format --check
         run: ruff format --check msnpip tests
-      - name: mypy
-        run: mypy msnpip || true   # type-checking is advisory until strict mode is enabled
 
   test:
     runs-on: ubuntu-latest
@@ -38,10 +39,12 @@ jobs:
         with:
           path: ~/neuromaps-data
           key: neuromaps-fsaverage-v1
-      - name: Install (engine resolves from pinned git SHA)
+      - name: Install (engine resolves from pinned git SHA; constraints pin the known-good set)
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]"
+          python -m pip install -e ".[dev]" -c constraints.txt
+      - name: mypy (type gate)
+        run: mypy msnpip
       - name: Pre-warm surface assets (so the figures stage renders + is covered)
         run: |
           python -c "import imaging_transcriptomics.outputs.brain as b; getattr(b,'fetch_standard_surface_meshes',lambda: None)()" || true
@@ -50,7 +53,24 @@ jobs:
           MPLBACKEND: Agg
         run: pytest -m "not slow" --cov=msnpip --cov-report=term-missing --cov-fail-under=85
 
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip pip-audit
+      # Advisory: surfaces known CVEs in the locked runtime set without blocking
+      # PRs on upstream vulns we can't immediately patch (the engine is git-pinned).
+      - name: pip-audit (advisory)
+        continue-on-error: true
+        run: pip-audit -r constraints.txt --progress-spinner=off
+
   test-slow:
+    # Heavy: pulls AHBA data + runs the real engine. Keep it off the per-PR path;
+    # run nightly (schedule) and on demand (workflow_dispatch) instead.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -65,7 +85,7 @@ jobs:
       - name: Install
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]"
+          python -m pip install -e ".[dev]" -c constraints.txt
       - name: Pre-warm surface assets
         run: |
           python -c "import imaging_transcriptomics.outputs.brain as b; getattr(b,'fetch_standard_surface_meshes',lambda: None)()" || true

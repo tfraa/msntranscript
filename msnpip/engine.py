@@ -82,7 +82,7 @@ def enable_annot_surface_nulls() -> None:
         )
         return gii
 
-    _annot_aware._msnpip_annot_aware = True
+    _annot_aware._msnpip_annot_aware = True  # type: ignore[attr-defined]  # idempotency marker
     _spins.load_gifti = _annot_aware
     _ANNOT_SHIM_DONE = True
     logger.debug("Enabled .annot-aware load_gifti shim for surface nulls.")
@@ -123,7 +123,7 @@ def enable_gsea_compat() -> None:
             textish = any(("gene" in c or "ledge" in c) for c in candidates)
             return np.array([""] * n, dtype=object) if textish else np.full(n, np.nan)
 
-    _tolerant_result_column._msnpip_gsea_compat = True
+    _tolerant_result_column._msnpip_gsea_compat = True  # type: ignore[attr-defined]  # marker
     _gpls.result_column = _tolerant_result_column
     _GSEA_SHIM_DONE = True
     logger.debug("Enabled gseapy>=1.x compatibility shim for engine GSEA.")
