@@ -1,0 +1,22 @@
+# Known-good runtime dependency lock for msnpip 2.0.
+#
+# These are the exact versions the pinned imaging-transcriptomics engine
+# (commit e6a2c237) and the test suite are verified against. Use them to get a
+# reproducible install when the floating ranges in pyproject.toml would otherwise
+# resolve to a newer (untested) release:
+#
+#     pip install -e ".[dev]" -c constraints.txt
+#
+# The engine itself is git-SHA-pinned in pyproject.toml, so it is intentionally
+# not repeated here. Refresh this file when the verified version set moves
+# (bump pyproject.toml upper bounds in the same change).
+numpy==1.26.4
+scipy==1.14.1
+pandas==2.3.3
+statsmodels==0.14.5
+nibabel==5.3.2
+matplotlib==3.10.9
+gseapy==1.3.0
+neuromaps==0.0.7
+openpyxl==3.1.5
+pyyaml==6.0

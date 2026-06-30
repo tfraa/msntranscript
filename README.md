@@ -48,6 +48,9 @@ LOAD → VALIDATE → MSN → CONTRAST → (CORRELATION) → (SENSITIVITY) → T
 ```bash
 # Python 3.12 recommended. The engine installs from a pinned git commit, so git is required.
 pip install -e .            # add [dev] for the test/lint toolchain: pip install -e ".[dev]"
+
+# For a reproducible, known-good dependency set (the versions the suite is verified against):
+pip install -e ".[dev]" -c constraints.txt
 ```
 
 Verify the engine is wired up:
