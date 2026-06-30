@@ -167,9 +167,10 @@ def plot_hemisphere_bars(
         cbar_ax = fig.add_axes([0.92, 0.18, 0.015, 0.55])
         fig.colorbar(sm, cax=cbar_ax).set_label(value_label, fontsize=9)
 
-    fig.text(0.06, 0.985, title, va="top", ha="left", fontsize=14, fontweight="bold", color=_INK)
+    # In-figure title omitted — the report page supplies the title (avoids
+    # duplicate titles); only the informative subtitle/legend is drawn here.
     if sub:
-        fig.text(0.06, 0.985 - 0.42 / height, sub, va="top", ha="left", fontsize=9, color=_MUTED)
+        fig.text(0.06, 0.985, sub, va="top", ha="left", fontsize=9, color=_MUTED)
 
     fig.savefig(output_path)
     plt.close(fig)
@@ -204,10 +205,10 @@ def plot_msn_matrix(
     ax.set_yticks(idx)
     ax.set_yticklabels(labels, fontsize=tick_fs, fontweight="bold")
     ax.tick_params(length=0)
-    ax.set_title(title, fontsize=15, fontweight="bold", loc="left")
+    # In-figure title omitted — the report page supplies the title.
     if subtitle:
         ax.text(
-            0.0, 1.004, subtitle, transform=ax.transAxes, fontsize=10, va="bottom", color="#555555"
+            0.0, 1.01, subtitle, transform=ax.transAxes, fontsize=10, va="bottom", color="#555555"
         )
     cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.02)
     cbar.set_label("similarity", fontsize=12, fontweight="bold")
@@ -308,13 +309,9 @@ def plot_enrichment_bars(
     top_frac = max(0.5, 1.0 - headroom / height)
     fig.tight_layout(rect=(0.0, 0.0, 1.0, top_frac))
     pos = ax.get_position()
-    fig.text(
-        pos.x0, 0.985, title, va="top", ha="left", fontsize=12.5, fontweight="bold", color=_INK
-    )
+    # In-figure title omitted — the report page supplies the title.
     if sub:
-        fig.text(
-            pos.x0, 0.985 - 0.34 / height, sub, va="top", ha="left", fontsize=8.5, color=_MUTED
-        )
+        fig.text(pos.x0, 0.985, sub, va="top", ha="left", fontsize=8.5, color=_MUTED)
     fig.savefig(output_path)
     plt.close(fig)
     logger.info("plot_enrichment_bars: wrote %s (%d terms)", output_path, len(s))

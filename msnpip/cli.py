@@ -105,10 +105,11 @@ def _add_corr_args(ap):
 
 
 def _add_engine_args(ap):
-    ap.add_argument("--atlas", default=_SUP)
+    # --atlas and --regions are intentionally not exposed: the methodology is
+    # locked to the DK atlas and cortical regions. Both keep their config.py
+    # defaults and can still be overridden via a --config YAML if ever needed.
     ap.add_argument("--hemisphere", choices=("left", "both"), default=_SUP)
     ap.add_argument("--compare-hemispheres", action="store_true", default=_SUP)
-    ap.add_argument("--regions", choices=("cort", "cort+sub"), default=_SUP)
     ap.add_argument(
         "--null-method",
         choices=("vasa", "alexander_bloch", "moran", "auto", "random"),
@@ -191,10 +192,8 @@ def _cfg_from_args(args) -> PipelineConfig:
 
     engine: dict = {}
     for src, dst in (
-        ("atlas", "atlas"),
         ("hemisphere", "hemisphere"),
         ("compare_hemispheres", "compare_hemispheres"),
-        ("regions", "regions"),
         ("null_method", "null_method"),
         ("n_perm", "n_permutations"),
         ("seed", "seed"),

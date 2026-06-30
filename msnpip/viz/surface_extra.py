@@ -174,11 +174,9 @@ def plot_surface_with_dorsal(
                 color="#334155",
             )
 
-    fig.text(0.03, header_top, title, ha="left", va="top", fontweight="bold", fontsize=14.0)
+    # In-figure title omitted — the report page supplies the title.
     sub = subtitle or f"{atlas_id} atlas · {mesh_kind} surface · {value_column}"
-    fig.text(
-        0.03, header_top - 0.4 / fig_h, sub, ha="left", va="top", fontsize=10.0, color="#555555"
-    )
+    fig.text(0.03, header_top, sub, ha="left", va="top", fontsize=10.0, color="#555555")
 
     mappable = plt.cm.ScalarMappable(norm=norm, cmap=cmap)
     mappable.set_array([])

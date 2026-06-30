@@ -63,6 +63,8 @@ class ReportBuilder:
         self.output_dir = Path(output_dir)
         self.plots_dir = self.output_dir / "plots"
         self.cfg = cfg
+        self._page_no = 0  # running page counter (footer numbering)
+        self._toc: list[tuple[str, int]] = []  # (section title, page) for the Contents page
 
     # ------------------------------------------------------------------
     def build(self, ctx: dict) -> Path | None:
@@ -72,18 +74,79 @@ class ReportBuilder:
         # wide images to landscape). Restored afterwards.
         prev_bbox = matplotlib.rcParams.get("savefig.bbox")
         matplotlib.rcParams["savefig.bbox"] = None
+        tmp_path = self.output_dir / ".report_pass1.pdf"
         try:
+            # Pass 1: render cover + body (no TOC) to a throwaway PDF to record the
+            # page on which each section starts. The report only embeds existing
+            # PNGs, so this is cheap and pagination is identical to the real pass.
+            self._page_no, self._toc = 0, []
+            with PdfPages(tmp_path) as pdf:
+                self._render_body(pdf, ctx, toc=None)
+            marks = list(self._toc)
+            toc_pages = self._toc_page_count(len(marks))
+            # The Contents page(s) sit after the cover, shifting every section down.
+            entries = [(title, page + toc_pages) for title, page in marks]
+
+            # Pass 2: the real report, with the Contents page(s) inserted.
+            self._page_no, self._toc = 0, []
             with PdfPages(pdf_path) as pdf:
-                self._cover_page(pdf, ctx)
-                self._dataset_page(pdf, ctx)
-                self._msn_section(pdf, ctx)
-                self._strength_section(pdf, ctx)
-                for tag, res, cc, kk in ctx.get("contrasts", []):
-                    self._contrast_section(pdf, ctx, tag, res, cc, kk)
+                self._render_body(pdf, ctx, toc=entries)
         finally:
             matplotlib.rcParams["savefig.bbox"] = prev_bbox
+            with contextlib.suppress(Exception):
+                tmp_path.unlink()
         logger.info("REPORT: wrote %s", pdf_path)
         return pdf_path
+
+    def _render_body(self, pdf, ctx: dict, *, toc) -> None:
+        """Render cover, optional Contents, then all sections in order.
+
+        ``toc`` is None on the measuring pass and the resolved ``(title, page)``
+        list on the real pass (when the Contents page is drawn after the cover).
+        """
+        self._cover_page(pdf, ctx)
+        if toc is not None:
+            self._toc_pages(pdf, toc)
+        self._dataset_page(pdf, ctx)
+        self._msn_section(pdf, ctx)
+        self._strength_section(pdf, ctx)
+        for tag, res, cc, kk in ctx.get("contrasts", []):
+            self._contrast_section(pdf, ctx, tag, res, cc, kk)
+
+    # ------------------------------------------------------------------
+    # Contents page + page numbering
+    # ------------------------------------------------------------------
+    _TOC_PER_PAGE = 30
+
+    def _toc_page_count(self, n_entries: int) -> int:
+        return max(1, (n_entries + self._TOC_PER_PAGE - 1) // self._TOC_PER_PAGE)
+
+    def _toc_mark(self, title: str) -> None:
+        """Record that *title* starts on the page about to be drawn."""
+        self._toc.append((title, self._page_no + 1))
+
+    def _toc_pages(self, pdf, entries: list[tuple[str, int]]) -> None:
+        n_pages = self._toc_page_count(len(entries))
+        per = max(1, (len(entries) + n_pages - 1) // n_pages)
+        for pi in range(n_pages):
+            chunk = entries[pi * per : (pi + 1) * per]
+            fig = self._open_page(pdf)
+            top = self._heading(fig, "Contents", kicker="Report")
+            y = top - 0.015
+            for title, page in chunk:
+                lines = self._wrap(title, width=70)
+                fig.text(0.07, y, lines[0], fontsize=11, color=_INK, va="top")
+                fig.text(0.93, y, str(page), fontsize=11, color=_INK, va="top", ha="right")
+                fig.add_artist(
+                    plt.Line2D(
+                        [0.07, 0.91], [y - 0.012, y - 0.012], color=_RULE, linewidth=0.5, ls=":"
+                    )
+                )
+                y -= 0.026
+                for extra in lines[1:]:
+                    fig.text(0.085, y, extra, fontsize=11, color=_INK, va="top")
+                    y -= 0.026
+            self._close_page(pdf, fig)
 
     # ==================================================================
     # Low-level page primitives
@@ -95,6 +158,11 @@ class ReportBuilder:
 
     def _close_page(self, pdf, fig) -> None:
         # savefig.bbox is forced off in build() so pages keep full A4 portrait.
+        self._page_no += 1
+        if self._page_no > 1:  # leave the cover unnumbered
+            fig.text(
+                0.5, 0.028, str(self._page_no), ha="center", va="bottom", fontsize=9, color=_MUTED
+            )
         pdf.savefig(fig)
         plt.close(fig)
 
@@ -375,6 +443,7 @@ class ReportBuilder:
             return {}
 
     def _dataset_page(self, pdf, ctx: dict) -> None:
+        self._toc_mark("1 · Dataset")
         cfg = self.cfg
         sm = ctx.get("strength_maps")
         schema = ctx.get("schema")
@@ -448,6 +517,7 @@ class ReportBuilder:
         self._close_page(pdf, fig)
 
     def _msn_section(self, pdf, ctx: dict) -> None:
+        self._toc_mark("2 · Morphometric Similarity Networks")
         cfg = self.cfg
         fig = self._open_page(pdf)
         top = self._heading(
@@ -518,6 +588,7 @@ class ReportBuilder:
         return out
 
     def _strength_section(self, pdf, ctx: dict) -> None:
+        self._toc_mark("3 · Node strength by group")
         fig = self._open_page(pdf)
         top = self._heading(
             fig,
@@ -592,6 +663,7 @@ class ReportBuilder:
         case_lbl, ctrl_lbl = tag.split("_vs_", 1)
         pretty = f"{case_lbl} vs {ctrl_lbl}"
         kicker = f"Contrast · {pretty}"
+        self._toc_mark(f"4 · Case-control contrast: {pretty}")
 
         # Section opener.
         fig = self._open_page(pdf)

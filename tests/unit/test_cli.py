@@ -97,23 +97,3 @@ class TestFullRun:
         assert rc == 0
         assert (out / "merged_dataset.csv").exists()
         assert (out / "strength_maps.csv").exists()
-
-    def test_unknown_atlas_returns_1(self, tmp_path):
-        rc = main(
-            [
-                "full",
-                "--dataframe",
-                "m.csv",
-                "--output",
-                str(tmp_path / "o"),
-                "--group-col",
-                "group",
-                "--case",
-                "A",
-                "--control",
-                "B",
-                "--atlas",
-                "definitely_not_an_atlas",
-            ]
-        )
-        assert rc == 1
