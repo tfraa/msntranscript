@@ -230,7 +230,6 @@ All plotting functions accept a **region table** with columns
 | Node-strength aggregation | `msn/construct.py` |
 | GLM group contrast (beta/t/cohen_d) | `stats/glm.py` |
 | Demographic correlation (Spearman, within-group) | `stats/correlation.py` |
-| Covariate exclusion sensitivity | `stats/sensitivity.py` |
 | Atlas label alignment | `atlas_align.py` |
 | Violin-by-group strength plot | `viz/distributions.py` |
 | Dorsal surface view | `viz/surface_extra.py` |

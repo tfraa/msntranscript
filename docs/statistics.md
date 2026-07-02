@@ -13,12 +13,13 @@ subjects → per-subject MSN → node strength → GROUP CONTRAST (regional map 
 ```
 
 ### 1. MSN construction
-Per subject, each of the 5 morphometric metrics is z-scored across regions, then inter-regional
-similarity is the Pearson correlation between regions' standardized feature vectors (diagonal
-NaN). The MSN is whole-cortex (both hemispheres). Node strength is the **signed mean**:
-`(mean of positive edges + mean of negative edges) / 2` (`positive` / `absolute` selectable).
-The z-score `ddof` does not affect the result — a uniform per-column rescale cancels in the
-row-wise Pearson.
+Per subject, each of the 5 morphometric metrics is standardized across regions with a robust
+modified z-score `M = 0.6745 · (x − median) / MAD` (per metric). Inter-regional similarity is
+the distance kernel `S = 1 / (1 + d / n_metrics)`, where `d` is the Euclidean distance between
+the two regions' standardized 5-metric vectors and `n_metrics = 5` (diagonal NaN). This yields
+a symmetric matrix bounded in `(0, 1]` — similarity is strictly positive, so there are no
+negative edges. The MSN is whole-cortex (both hemispheres). Node strength is the **sum**
+(default) or mean of a region's similarity edges (`strength_agg`, dimensionless).
 
 ### 2. Group contrast (subject-level)
 Per region, OLS of `strength ~ group + covariates`; the exported regional statistic is the
@@ -35,8 +36,11 @@ correlation p-values; no spatial null.
 ### 4. Imaging transcriptomics — two null layers
 - **Layer A (spatial)** — handled by the engine via the **`vasa` surface spin**. Answers: "is
   this gene/pathway association stronger than under spatially-autocorrelated random brain
-  maps?" msnpip fixes the null to `vasa` and hard-fails (`MsnpipSurfaceNullError`) if the
-  engine falls back to a grouped shuffle, so an invalid spin test can never reach a figure.
+  maps?" msnpip fixes the null to `vasa`. By default (`allow_null_fallback=True`), if the
+  surface spin is unavailable the engine falls back (`auto` → grouped shuffle) and msnpip
+  **warns** rather than aborting; the *resolved* null is recorded in the result metadata and
+  flagged with a red banner on the report cover, so a degraded spatial test is visible but not
+  silent. Set `allow_null_fallback=False` to hard-fail (`MsnpipSurfaceNullError`) instead.
 - **Layer B (sampling)** — subject-level resampling of the contrast map's stability. Documented
   as a future option; not built in v2.
 

@@ -268,7 +268,11 @@ def compute_strength_maps(
     metric_index = {m: i for i, m in enumerate(metrics)}
 
     # Discover the (hemi, region) grid present for the requested hemisphere/metrics,
-    # preserving first-seen region order for determinism.
+    # preserving first-seen region order for determinism. This order follows the input
+    # feature-column order, not a fixed aparc order — which is safe scientifically:
+    # standardization is within-subject per metric (order-agnostic) and downstream
+    # engine alignment is by (hemisphere, label), not position. It only affects the
+    # row/column order of raw MSN-matrix printouts/plots.
     region_order: list[str] = []
     seen_regions: set[str] = set()
     grid: dict[tuple[str, str, str], str] = {}  # (hemi, region, metric) → column

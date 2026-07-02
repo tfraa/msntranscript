@@ -134,6 +134,47 @@ def test_corr_method_is_curated_separately(tmp_path, monkeypatch):
     assert {"pls", "corr"} <= set(enr["method"])
 
 
+def _fake_degraded_null(vec, labels_df, eng_cfg, base, tag):
+    """Engine bundle whose result reports a degraded (non-spin) resolved null."""
+    import types
+
+    d = Path(base) / tag / "pls"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "pls_component_1.tsv").write_text(
+        "gene\tweight\tp\tfdr\nG1\t0.1\t0.01\t0.2\n", encoding="utf-8"
+    )
+    (d / "pls_summary.tsv").write_text(
+        "component\tvar\tcumvar\tp\n1\t0.4\t0.4\t0.03\n", encoding="utf-8"
+    )
+    (d / "ensemble_lake_results.tsv").write_text(
+        "Term\tz_score\tp_val\tfdr\nT1\t1.0\t0.02\t0.3\n", encoding="utf-8"
+    )
+    return {"pls": types.SimpleNamespace(metadata=types.SimpleNamespace(null_method="random"))}
+
+
+def test_resolved_null_is_recorded_in_curated_outputs(tmp_path, monkeypatch):
+    info = make_synthetic_cohort(tmp_path / "data", n_case=10, n_control=10, seed=3)
+    out = tmp_path / "out"
+    cfg = PipelineConfig(
+        io=IOConfig(dataframe=Path(info["merged_path"])),
+        output=out,
+        group_col="group",
+        case="FTD",
+        control="HC",
+        glm=GLMConfig(predictors=("age",)),
+        engine=EngineConfig(methods=("pls",), n_permutations=10),
+    )
+    monkeypatch.setattr(pipeline_mod.engine_mod, "run_transcriptomics", _fake_degraded_null)
+    run_pipeline(cfg, stop_stage="TRANSCRIPTOMICS")
+
+    # A degraded (non-spin) null must be visible in the curated CSVs, not just logs.
+    enr = pd.read_csv(out / "FTD_vs_HC_enrichment.csv")
+    assert "null_method" in enr.columns
+    assert (enr["null_method"] == "random").all()
+    pls = pd.read_csv(out / "FTD_vs_HC_pls.csv")
+    assert (pls["null_method"] == "random").all()
+
+
 def test_no_pickle_anywhere(full_cfg, monkeypatch):
     cfg, out = full_cfg
     monkeypatch.setattr(pipeline_mod.engine_mod, "run_transcriptomics", _fake_run_transcriptomics)

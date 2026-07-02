@@ -253,7 +253,13 @@ class Pipeline:
                 eng_cfg = replace(cfg.engine, hemisphere=hemi)
                 out_tag = f"{tag}_hemi-{hemi}" if cfg.engine.compare_hemispheres else tag
                 results = engine_mod.run_transcriptomics(vec, labels_df, eng_cfg, staging, out_tag)
-                self._curate_engine_bundle(out_tag, staging / out_tag)
+                # Resolved (actually-used) spatial null per method, so a degraded
+                # (non-spin) fallback is visible in the curated CSVs, not just logs.
+                null_by_method = {
+                    m: getattr(getattr(r, "metadata", None), "null_method", None)
+                    for m, r in results.items()
+                }
+                self._curate_engine_bundle(out_tag, staging / out_tag, null_by_method)
                 tx.append((tag, hemi, results))
         if staging.exists():
             shutil.rmtree(staging, ignore_errors=True)
@@ -460,10 +466,18 @@ class Pipeline:
             out[f"mean_strength_{group}"] = sm.strength[idx].mean(axis=0)
         return out
 
-    def _curate_engine_bundle(self, tag: str, bundle_dir: Path) -> None:
-        """Extract curated PLS + enrichment CSVs and copy plots from a bundle."""
+    def _curate_engine_bundle(
+        self, tag: str, bundle_dir: Path, null_by_method: dict | None = None
+    ) -> None:
+        """Extract curated PLS + enrichment CSVs and copy plots from a bundle.
+
+        ``null_by_method`` maps each method to the spatial null actually resolved
+        for it (e.g. ``{"pls": "vasa"}``); it is stamped onto the curated tables so a
+        degraded (non-spin) fallback is visible without reading the logs or report.
+        """
         if not bundle_dir.exists():
             return
+        null_by_method = null_by_method or {}
         # PLS gene-level results (one row block per component).
         pls_frames = []
         for f in sorted(bundle_dir.glob("pls/pls_component_*.tsv")):
@@ -472,19 +486,25 @@ class Pipeline:
             tbl.insert(0, "component", int(comp.group(1)) if comp else 0)
             pls_frames.append(tbl)
         if pls_frames:
-            self._csv(pd.concat(pls_frames, ignore_index=True), f"{tag}_pls")
+            df = pd.concat(pls_frames, ignore_index=True)
+            df["null_method"] = null_by_method.get("pls")
+            self._csv(df, f"{tag}_pls")
 
         # PLS component summary (explained variance, cumulative variance, p-value).
         summary = bundle_dir / "pls" / "pls_summary.tsv"
         if summary.exists():
-            self._csv(pd.read_csv(summary, sep="\t"), f"{tag}_pls_summary")
+            df = pd.read_csv(summary, sep="\t")
+            df["null_method"] = null_by_method.get("pls")
+            self._csv(df, f"{tag}_pls_summary")
 
         # Correlation gene-level results (only when the corr method was run).
         corr_frames = [
             pd.read_csv(f, sep="\t") for f in sorted(bundle_dir.glob("corr/*genes*.tsv"))
         ]
         if corr_frames:
-            self._csv(pd.concat(corr_frames, ignore_index=True), f"{tag}_corr")
+            df = pd.concat(corr_frames, ignore_index=True)
+            df["null_method"] = null_by_method.get("corr")
+            self._csv(df, f"{tag}_corr")
 
         # Enrichment results. The PLS path writes one folder per gene set:
         # ``<method>/enrichment/<geneset>/<backend>_pls<N>_*.tsv``.  Legacy
@@ -509,6 +529,7 @@ class Pipeline:
             tbl.insert(0, "geneset", geneset)
             tbl.insert(0, "enrichment", backend)
             tbl.insert(0, "method", method)
+            tbl["null_method"] = null_by_method.get(method)
             enr_frames.append(tbl)
         if enr_frames:
             self._csv(pd.concat(enr_frames, ignore_index=True), f"{tag}_enrichment")

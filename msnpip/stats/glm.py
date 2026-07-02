@@ -439,6 +439,23 @@ def regional_group_contrast(
     design = build_design_matrix(design_input, list(design_input.columns), add_intercept=True)
     group_term = "group"
 
+    # Design-rank guardrail: a rank-deficient or near-saturated design (too many
+    # covariate terms for the sample) makes per-region t/p NaN while beta is still
+    # emitted via pinv. Warn once, up front, so this isn't silently buried in a
+    # column of NaNs across every region.
+    n_obs, n_terms = design.shape
+    rank = int(np.linalg.matrix_rank(design.to_numpy(dtype=float)))
+    if rank < n_terms or (n_obs - rank) <= 1:
+        logger.warning(
+            "Design is rank-deficient / near-saturated: n_obs=%d, terms=%d, rank=%d "
+            "(residual df=%d). Per-region t/p will be NaN (beta still reported); "
+            "reduce covariates or add subjects.",
+            n_obs,
+            n_terms,
+            rank,
+            n_obs - rank,
+        )
+
     n_regions = strength.shape[1]
     regional_stat = np.full(n_regions, np.nan)
 

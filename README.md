@@ -28,18 +28,22 @@ patterns to gene expression from the **Allen Human Brain Atlas** via **PLS** and
 ## What it does
 
 ```
-LOAD → VALIDATE → MSN → CONTRAST → (CORRELATION) → (SENSITIVITY) → TRANSCRIPTOMICS → FIGURES → REPORT
+LOAD → VALIDATE → MSN → CONTRAST → (CORRELATION) → TRANSCRIPTOMICS → FIGURES → REPORT
 ```
 
-- **MSN** is a whole-cortex network: within-subject z-scored morphometric features
-  (`SurfArea, GrayVol, ThickAvg, MeanCurv, GausCurv`), Pearson similarity, signed-mean node
-  strength. Both hemispheres are always used upstream.
+- **MSN** is a whole-cortex network: each region's 5 morphometric features
+  (`SurfArea, GrayVol, ThickAvg, MeanCurv, GausCurv`) are z-scored within subject
+  (robust modified z-score), and inter-regional similarity is the distance kernel
+  `S = 1 / (1 + d / n_metrics)`, where `d` is the Euclidean distance between the two
+  regions' standardized feature vectors. Node strength is the sum (default) or mean of a
+  region's similarity edges. Both hemispheres are always used upstream.
 - **Group contrast** per region (β / t / Cohen's d), with covariates of your choosing;
   site/scanner are always one-hot encoded.
-- **Transcriptomics** runs inside the pinned engine with the **`vasa` surface-spin null**
-  (hard-fail if the spin assets are missing — no silent shuffle fallback).
-- **No pickle anywhere**: outputs are CSV / Parquet / NPZ / JSON / PNG / PDF only, with a
-  sha256 manifest.
+- **Transcriptomics** runs inside the pinned engine with the **`vasa` surface-spin null**.
+  By default a failed surface spin falls back (`auto` → shuffle) with a warning; the
+  resolved null is recorded and flagged on the report cover. Set `allow_null_fallback=False`
+  to hard-fail instead.
+- **No pickle anywhere**: outputs are CSV / Parquet / NPZ / JSON / PNG / PDF only.
 
 ---
 
@@ -204,8 +208,8 @@ offline.
 
 | Item | Value |
 |---|---|
-| Null model | `vasa` surface spin only; hard-fail if unavailable |
-| MSN | 5 features, within-subject z-score, Pearson, signed-mean strength, both hemispheres |
+| Null model | `vasa` surface spin; fallback-with-warning by default (`allow_null_fallback=False` to hard-fail) |
+| MSN | 5 features, within-subject robust z-score, distance kernel `1/(1+d/n)`, sum strength, both hemispheres |
 | Contrast statistic | `beta` (default), `t`, or `cohen_d` |
 | Enrichment | `ensemble` primary + `gsea` secondary |
 | ID matching | exact after whitespace strip |

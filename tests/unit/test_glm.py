@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -214,3 +216,25 @@ class TestRegionalGroupContrast:
                 control_label=info["control_label"],
                 stat="bogus",
             )
+
+    def test_rank_deficient_design_warns_and_still_emits_beta(self, tmp_path, caplog):
+        # 6 subjects with 4 covariates saturates the design (Intercept + group + age +
+        # tiv + sex + site = 6 terms, residual df ~ 0): t/p go NaN but beta is still
+        # emitted. The guardrail must warn up front rather than fail silently.
+        info = make_synthetic_cohort(tmp_path, n_case=3, n_control=3, seed=5)
+        df = pd.read_csv(info["merged_path"])
+        schema = detect_schema(df, expected_regions=DK_REGIONS)
+        sm_maps = compute_strength_maps(df, schema, hemisphere="left")
+        with caplog.at_level(logging.WARNING):
+            res = regional_group_contrast(
+                sm_maps,
+                df,
+                schema,
+                case_label=info["case_label"],
+                control_label=info["control_label"],
+                covariates=["age", "tiv", "sex", "site"],
+                stat="beta",
+            )
+        assert any("rank-deficient" in m or "near-saturated" in m for m in caplog.messages)
+        assert np.isfinite(res.beta).any()  # beta still reported (pinv)
+        assert np.isnan(res.tvalue).all()  # t/p undefined under the saturated design
