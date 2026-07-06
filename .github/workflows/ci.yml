@@ -21,7 +21,9 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: python -m pip install --upgrade pip ruff
+      # Pin ruff so CI matches the pre-commit hook exactly (avoids format/lint
+      # drift where a newer ruff reformats or adds rules only CI sees).
+      - run: python -m pip install --upgrade pip "ruff==0.15.18"
       - name: ruff check
         run: ruff check msnpip tests
       - name: ruff format --check

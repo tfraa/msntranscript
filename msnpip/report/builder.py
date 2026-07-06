@@ -958,6 +958,9 @@ class ReportBuilder:
                 gkey = gkey if isinstance(gkey, tuple) else (gkey,)
                 backend = str(gkey[0]) if "enrichment" in group_cols else ""
                 geneset = str(gkey[-1]) if "geneset" in group_cols else "gene set"
+                # FDR denominator = number of categories tested for this backend /
+                # gene set (BH-corrected over these), captured before top-N trimming.
+                n_tested = len(sub)
                 # Effect-score column (NES for GSEA, z_score for ensemble).
                 score_col = next(
                     (
@@ -998,6 +1001,19 @@ class ReportBuilder:
                 )
                 emitted = True
                 suffix = f" ({backend})" if backend else ""
+                # Backend-specific effect description (so an ensemble table is not
+                # mislabelled as GSEA and vice-versa).
+                effect = {
+                    "ensemble": (
+                        "z_score is the enrichment effect (mean z-scored gene weight "
+                        "per category vs the spatial-spin null)"
+                    ),
+                    "gsea": (
+                        "nes/es is the enrichment effect (running-sum statistic, genes "
+                        "re-ranked per spin surrogate)"
+                    ),
+                    "ora": "overlap counts (hypergeometric; reproduction/exploratory only, not inference)",
+                }.get(backend, "the leading column is the enrichment effect")
                 self._table_page(
                     pdf,
                     title=f"Enrichment terms — {geneset}{suffix}",
@@ -1007,14 +1023,61 @@ class ReportBuilder:
                     bold_cells=bold,
                     intro=[
                         (
-                            f"Gene-set enrichment for {geneset}{suffix}. "
-                            "nes/es (GSEA) or z_score (ensemble) is the enrichment effect; "
+                            f"Gene-set enrichment for {geneset}{suffix}. {effect}; "
                             f"p_val / fdr give nominal and FDR-corrected significance (bold fdr = "
-                            f"significant at < {SIG_ALPHA}).",
+                            f"significant at < {SIG_ALPHA}). BH-FDR denominator: "
+                            f"{n_tested} categories tested.",
                             "p",
                         )
                     ],
                     caption=rank_note,
+                )
+
+        # Gene-set specificity (orthogonal to the spin null): most-specific terms.
+        for path in self._glob_tagged(f"{tag}*_gene_specificity.csv"):
+            try:
+                spec = pd.read_csv(path)
+            except Exception:
+                continue
+            if spec.empty or "p_specificity" not in spec.columns:
+                continue
+            group_cols = [c for c in ("geneset",) if c in spec.columns]
+            groups = spec.groupby(group_cols) if group_cols else [((), spec)]
+            for gkey, sub in groups:
+                gkey = gkey if isinstance(gkey, tuple) else (gkey,)
+                geneset = str(gkey[-1]) if group_cols else "gene set"
+                n_random = int(sub["n_random"].iloc[0]) if "n_random" in sub.columns else 0
+                disp = sub.sort_values("p_specificity", kind="mergesort").head(20)
+                keep = [
+                    c
+                    for c in ("Term", "category_score", "matched_size", "p_specificity")
+                    if c in disp.columns
+                ]
+                disp = disp[keep].reset_index(drop=True)
+                bold = {
+                    (i, "p_specificity")
+                    for i, v in enumerate(disp["p_specificity"])
+                    if pd.notna(v) and float(v) < SIG_ALPHA
+                }
+                emitted = True
+                self._table_page(
+                    pdf,
+                    title=f"Gene-set specificity — {geneset}",
+                    df=disp,
+                    kicker=kicker,
+                    max_rows=24,
+                    bold_cells=bold,
+                    intro=[
+                        (
+                            f"Specificity of each category for {geneset} versus "
+                            f"{n_random} size-matched random gene sets (axis orthogonal to "
+                            "the spatial-spin null). p_specificity < "
+                            f"{SIG_ALPHA} (bold) = the real set scores more extremely than "
+                            "random sets of equal size.",
+                            "p",
+                        )
+                    ],
+                    caption="Ranked by p_specificity (most specific first).",
                 )
 
         if not emitted:

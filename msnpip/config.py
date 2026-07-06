@@ -61,6 +61,11 @@ class EngineConfig:
     )
     geneset_organism: str = "Human"
     ora_p_threshold: float | None = None
+    # Gene-specificity test (orthogonal to the spin null): compare each category
+    # against ``n_specificity`` size-matched random gene sets. See
+    # msnpip.genes.gene_specificity.
+    gene_specificity: bool = True
+    n_specificity: int = 1000
     seed: int = 1234
     n_jobs: int = 1
 

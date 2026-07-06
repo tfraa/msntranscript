@@ -149,7 +149,7 @@ def main_style_gsea_table(
     matched_size = [int(idx.size) for idx in prepared.hit_positions]
     matched_genes = [";".join(genes[idx].astype(str).tolist()) for idx in prepared.hit_positions]
 
-    out: "OrderedDict[str, object]" = OrderedDict()
+    out: OrderedDict[str, object] = OrderedDict()
     out["Term"] = list(prepared.terms)
     out["es"] = observed_es
     out["nes"] = nes

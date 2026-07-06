@@ -97,7 +97,7 @@ msnpip full \
   --exclude-covariate site \
   --correlate-with age --corr-scope global \
   --atlas dk --hemisphere left --regions cort \
-  --method pls corr --ncomp 1 --n-perm 10000 \
+  --method pls --ncomp 1 --n-perm 10000 \
   --enrichment ensemble gsea \
   --geneset lake pooled GO_Biological_Process_2025 KEGG_2021_Human DisGeNET \
   --seed 1234 -v

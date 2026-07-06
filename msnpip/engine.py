@@ -29,6 +29,7 @@ import pandas as pd
 
 from msnpip.config import EngineConfig
 from msnpip.errors import MsnpipEngineError, MsnpipError, MsnpipSurfaceNullError
+from msnpip.genes.gene_specificity import run_gene_specificity
 from msnpip.genes.gsea_mainstyle import run_gsea as run_corrected_gsea
 
 logger = logging.getLogger("msnpip.engine")
@@ -374,6 +375,21 @@ def _run_pls_fit_once_enrich_many(
                 logger.info("enrichment[%s] gene set %r → %s", backend, label, sub)
             except Exception as exc:
                 logger.warning("enrichment[%s] failed for gene set %r: %s", backend, gene_set, exc)
+        # Gene-specificity: the axis orthogonal to the spin null (size-matched
+        # random gene sets). Written per gene set alongside the enrichment tables.
+        if cfg.gene_specificity:
+            try:
+                run_gene_specificity(
+                    res_obj,
+                    gene_set=resolved,
+                    outdir=sub,
+                    geneset_organism=cfg.geneset_organism,
+                    n_random=cfg.n_specificity,
+                    seed=cfg.seed,
+                )
+                logger.info("gene-specificity gene set %r → %s", label, sub)
+            except Exception as exc:
+                logger.warning("gene-specificity failed for gene set %r: %s", gene_set, exc)
     return result
 
 
