@@ -117,9 +117,7 @@ def _add_engine_args(ap):
         default=_SUP,
         help="cortical spatial null (default vasa). Use 'auto' to allow fallback to random.",
     )
-    ap.add_argument(
-        "--method", choices=("pls",), action="append", dest="method", default=_SUP
-    )
+    ap.add_argument("--method", choices=("pls",), action="append", dest="method", default=_SUP)
     ap.add_argument("--ncomp", type=int, default=_SUP)
     ap.add_argument("--var", type=float, default=_SUP)
     ap.add_argument("--n-perm", type=int, dest="n_perm", default=_SUP)

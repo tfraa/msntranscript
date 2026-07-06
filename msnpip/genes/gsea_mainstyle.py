@@ -55,7 +55,9 @@ from ..logging_ import get_logger
 logger = get_logger("genes")
 
 
-def prepare_over_universe(gene_list, geneset_resource, *, min_overlap: int = 1) -> PreparedPrerankGeneSets:
+def prepare_over_universe(
+    gene_list, geneset_resource, *, min_overlap: int = 1
+) -> PreparedPrerankGeneSets:
     """Prepare geneset hit-positions over a ranked gene universe.
 
     Terms that do not overlap the universe (or fall below ``min_overlap``) are
@@ -147,7 +149,7 @@ def main_style_gsea_table(
     matched_size = [int(idx.size) for idx in prepared.hit_positions]
     matched_genes = [";".join(genes[idx].astype(str).tolist()) for idx in prepared.hit_positions]
 
-    out = OrderedDict()
+    out: "OrderedDict[str, object]" = OrderedDict()
     out["Term"] = list(prepared.terms)
     out["es"] = observed_es
     out["nes"] = nes
@@ -198,5 +200,7 @@ def run_gsea(
             output_dir = Path(outdir)
             assert output_dir.exists()
             logger.info("Saving corrected GSEA results for PLS component %d.", component + 1)
-            out_df.to_csv(output_dir / f"gsea_pls{component + 1}_results.tsv", index=False, sep="\t")
+            out_df.to_csv(
+                output_dir / f"gsea_pls{component + 1}_results.tsv", index=False, sep="\t"
+            )
     return outputs

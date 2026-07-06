@@ -102,9 +102,7 @@ def _h0_pvalues(*, n_genes, set_size, n_iter, trials, seed, reranked):
 def test_pure_h0_is_calibrated():
     """Re-ranked null: FPR ≈ 0.05 and mean p ≈ 0.5 under pure H0."""
 
-    pvals = _h0_pvalues(
-        n_genes=200, set_size=20, n_iter=200, trials=200, seed=1, reranked=True
-    )
+    pvals = _h0_pvalues(n_genes=200, set_size=20, n_iter=200, trials=200, seed=1, reranked=True)
     fpr = float(np.mean(pvals < 0.05))
     mean_p = float(np.mean(pvals))
     assert fpr <= 0.10, f"H0 false-positive rate too high: {fpr:.3f}"
@@ -122,6 +120,5 @@ def test_rerank_fixes_fixed_position_inflation():
     assert reranked_fpr <= 0.10
     # The bug must be materially worse than the fix (guards against regressing).
     assert fixed_fpr > reranked_fpr + 0.10, (
-        f"expected fixed-position inflation, got fixed={fixed_fpr:.3f} "
-        f"reranked={reranked_fpr:.3f}"
+        f"expected fixed-position inflation, got fixed={fixed_fpr:.3f} reranked={reranked_fpr:.3f}"
     )
