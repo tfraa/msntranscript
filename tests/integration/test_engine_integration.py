@@ -17,14 +17,14 @@ from msnpip.errors import MsnpipEngineError, MsnpipSurfaceNullError
 pytestmark = pytest.mark.slow
 
 
-def test_run_pls_corr_on_synthetic_aligned_vector(tmp_path):
+def test_run_pls_on_synthetic_aligned_vector(tmp_path):
     # Canonical DK left-cortex label order straight from the engine.
     labels = engine_region_order("dk", "left", "cort")
     rng = np.random.default_rng(0)
     regional_map = rng.normal(size=len(labels))
 
     cfg = EngineConfig(
-        methods=("pls", "corr"),
+        methods=("pls",),
         n_permutations=100,  # tiny — this is a smoke test, not a publication run
         enrichment_methods=("ensemble",),
         gene_sets=("GO_Biological_Process_2025",),
@@ -37,9 +37,8 @@ def test_run_pls_corr_on_synthetic_aligned_vector(tmp_path):
     except MsnpipEngineError as exc:
         pytest.skip(f"Engine unavailable / assets missing: {exc}")
 
-    assert set(results) == {"pls", "corr"}
-    # Engine wrote its own bundle under each method directory.
+    assert set(results) == {"pls"}
+    # Engine wrote its own bundle under the method directory.
     assert any((tmp_path / "synthetic" / "pls").iterdir())
-    assert any((tmp_path / "synthetic" / "corr").iterdir())
     # Surface null must have been honoured (not a silent shuffle).
     assert results["pls"].metadata.null_method in ("vasa", "alexander_bloch", "moran")

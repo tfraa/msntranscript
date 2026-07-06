@@ -9,6 +9,7 @@ matplotlib.use("Agg")
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import pytest
 
 import msnpip.pipeline as pipeline_mod
 from msnpip.cli import build_parser, main
@@ -49,16 +50,21 @@ class TestArgParsing:
                 "o",
                 "--method",
                 "pls",
-                "--method",
-                "corr",
                 "--enrichment",
                 "ensemble",
                 "--enrichment",
                 "gsea",
             ]
         )
-        assert args.method == ["pls", "corr"]
+        assert args.method == ["pls"]
         assert args.enrichment == ["ensemble", "gsea"]
+
+    def test_corr_method_is_rejected(self):
+        # The engine correlation backend was removed; only 'pls' is a valid method.
+        with pytest.raises(SystemExit):
+            build_parser().parse_args(
+                ["full", "--dataframe", "m.csv", "--output", "o", "--method", "corr"]
+            )
 
 
 class TestFullRun:

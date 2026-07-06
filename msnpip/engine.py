@@ -1,12 +1,13 @@
 """
-Thin wrapper around imaging_transcriptomics.run_pls / run_corr.
+Thin wrapper around imaging_transcriptomics.run_pls.
 Phase 3, Task T3.1.
 
-The engine itself runs PLS/correlation, the spatial-null permutations, and the
-enrichment families, and writes its own TSV/JSON/PNG bundle.  msnpip's job here
-is narrow: validate the already-aligned input, dispatch the engine (PLS fits
-once then enriches each gene set; corr uses a single call), wrap engine
-exceptions with context, and manage the spatial-null policy.
+The engine itself runs PLS, the spatial-null permutations, and the enrichment
+families, and writes its own TSV/JSON/PNG bundle.  msnpip's job here is narrow:
+validate the already-aligned input, dispatch the engine (PLS fits once then
+enriches each gene set), wrap engine exceptions with context, and manage the
+spatial-null policy.  PLS is the only gene-ranking method; the engine's
+correlation backend is not used.
 
 Surface-null note: the pinned engine ships the DK parcellation only as a
 FreeSurfer ``.annot``, which neuromaps' spin-null loader (``load_gifti``) cannot
@@ -28,6 +29,7 @@ import pandas as pd
 
 from msnpip.config import EngineConfig
 from msnpip.errors import MsnpipEngineError, MsnpipError, MsnpipSurfaceNullError
+from msnpip.genes.gsea_mainstyle import run_gsea as run_corrected_gsea
 
 logger = logging.getLogger("msnpip.engine")
 
@@ -144,9 +146,9 @@ def _is_null_error(exc: BaseException) -> bool:
 def _primary_enrichment(enrichment_methods: tuple[str, ...]) -> str:
     """The enrichment family passed as ``enrichment_method=`` to the engine.
 
-    GSEA is requested separately via ``run_gsea`` (it runs *alongside* the
-    primary family), so it is skipped here.  Falls back to ``"none"`` if the
-    only requested family is GSEA.
+    GSEA is run separately by msnpip's own corrected backend (per-surrogate
+    re-rank, see :mod:`msnpip.genes.gsea_mainstyle`), not by the engine, so it is
+    skipped here.  Falls back to ``"none"`` if the only requested family is GSEA.
     """
     for method in enrichment_methods:
         if method in ("ensemble", "ora", "none"):
@@ -175,49 +177,6 @@ def _check_surface_null(result, cfg: EngineConfig, method: str) -> None:
         method,
         used,
     )
-
-
-def _call_engine(
-    method: str,
-    data: np.ndarray,
-    input_rh: np.ndarray | None,
-    cfg: EngineConfig,
-    out_dir: Path,
-    null_method: str,
-):
-    """Dispatch a single run_pls / run_corr call with shared kwargs.
-
-    The engine takes ONE gene set per call (``gene_set: str``); msnpip's
-    multi-gene-set support is handled separately (PLS fits once then enriches
-    each set — see :func:`_run_pls_fit_once_enrich_many`).  This path is used for
-    ``corr`` and passes a single gene set to avoid the engine's tuple crash.
-    """
-    primary = _primary_enrichment(cfg.enrichment_methods)
-    run_gsea = "gsea" in cfg.enrichment_methods
-    gene_set = _resolve_geneset(cfg.gene_sets[0] if cfg.gene_sets else "lake")
-
-    common = dict(
-        atlas=cfg.atlas,
-        hemisphere=cfg.hemisphere,
-        regions=cfg.regions,
-        input_rh=input_rh,
-        n_permutations=cfg.n_permutations,
-        null_method=null_method,
-        output_dir=out_dir,
-        enrichment_method=primary,
-        run_gsea=run_gsea,
-        gene_set=gene_set,
-        geneset_organism=cfg.geneset_organism,
-        ora_p_threshold=cfg.ora_p_threshold,
-        seed=cfg.seed,
-        n_jobs=cfg.n_jobs,
-    )
-
-    if method == "pls":
-        return imt.run_pls(data, n_components=cfg.n_components, var=cfg.var, **common)
-    if method == "corr":
-        return imt.run_corr(data, **common)
-    raise MsnpipEngineError(f"Unknown engine method {method!r} (expected 'pls' or 'corr').")
 
 
 def _geneset_label(gene_set: str) -> str:
@@ -394,8 +353,16 @@ def _run_pls_fit_once_enrich_many(
                         gene_set=resolved, outdir=sub, geneset_organism=cfg.geneset_organism
                     )
                 elif backend == "gsea":
-                    res_obj.gsea(
-                        gene_set=resolved, outdir=sub, geneset_organism=cfg.geneset_organism
+                    # Corrected GSEA: per-surrogate re-ranked null (see
+                    # msnpip.genes.gsea_mainstyle). The engine's res_obj.gsea
+                    # froze gene positions at the observed ranking, which is
+                    # anti-conservative; this reuses the engine's ES function on
+                    # each spun-map PLS fit's own ranking.
+                    run_corrected_gsea(
+                        res_obj,
+                        gene_set=resolved,
+                        outdir=sub,
+                        geneset_organism=cfg.geneset_organism,
                     )
                 elif backend == "ora":
                     res_obj.ora(
@@ -482,53 +449,23 @@ def run_transcriptomics(
             cfg.null_method,
             cfg.n_permutations,
         )
-        if method == "pls":
-            # Fit once, enrich every gene set (avoids re-running the spatial null
-            # per gene set; the engine couples them in a single-gene-set call).
-            try:
-                result = _run_pls_fit_once_enrich_many(data, input_rh, cfg, out_dir)
-            except MsnpipError:
-                raise
-            except Exception as exc:
-                raise MsnpipEngineError(
-                    f"Engine 'pls' call failed for contrast {contrast_tag!r}: {exc}",
-                    cause=exc,
-                ) from exc
-        else:
-            if len(cfg.gene_sets) > 1:
-                logger.warning(
-                    "[corr] enrichment runs only the first gene set (%s); "
-                    "multi-gene-set enrichment is currently PLS-only.",
-                    _geneset_label(cfg.gene_sets[0]),
-                )
-            try:
-                result = _call_engine(method, data, input_rh, cfg, out_dir, cfg.null_method)
-            except MsnpipError:
-                raise
-            except Exception as exc:
-                # If the surface null failed and fallback is allowed, retry with
-                # 'auto' (engine cascades vasa → alexander_bloch → random).
-                if cfg.allow_null_fallback and _is_null_error(exc) and cfg.null_method != "auto":
-                    logger.warning(
-                        "[%s] Surface null %r failed (%s); retrying with null_method='auto' "
-                        "(falls back to random if needed).",
-                        method,
-                        cfg.null_method,
-                        exc,
-                    )
-                    try:
-                        result = _call_engine(method, data, input_rh, cfg, out_dir, "auto")
-                    except Exception as exc2:
-                        raise MsnpipEngineError(
-                            f"Engine {method!r} failed for {contrast_tag!r} even after null "
-                            f"fallback: {exc2}",
-                            cause=exc2,
-                        ) from exc2
-                else:
-                    raise MsnpipEngineError(
-                        f"Engine {method!r} call failed for contrast {contrast_tag!r}: {exc}",
-                        cause=exc,
-                    ) from exc
+        if method != "pls":
+            raise MsnpipEngineError(
+                f"Unsupported engine method {method!r}; only 'pls' is supported."
+            )
+        # Fit once, enrich every gene set (avoids re-running the spatial null
+        # per gene set; the engine couples them in a single-gene-set call).
+        # The spatial-null fallback policy is handled inside
+        # _run_pls_fit_once_enrich_many (see the _permute retry there).
+        try:
+            result = _run_pls_fit_once_enrich_many(data, input_rh, cfg, out_dir)
+        except MsnpipError:
+            raise
+        except Exception as exc:
+            raise MsnpipEngineError(
+                f"Engine 'pls' call failed for contrast {contrast_tag!r}: {exc}",
+                cause=exc,
+            ) from exc
 
         _check_surface_null(result, cfg, method)
         results[method] = result

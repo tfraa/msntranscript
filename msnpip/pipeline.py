@@ -497,15 +497,6 @@ class Pipeline:
             df["null_method"] = null_by_method.get("pls")
             self._csv(df, f"{tag}_pls_summary")
 
-        # Correlation gene-level results (only when the corr method was run).
-        corr_frames = [
-            pd.read_csv(f, sep="\t") for f in sorted(bundle_dir.glob("corr/*genes*.tsv"))
-        ]
-        if corr_frames:
-            df = pd.concat(corr_frames, ignore_index=True)
-            df["null_method"] = null_by_method.get("corr")
-            self._csv(df, f"{tag}_corr")
-
         # Enrichment results. The PLS path writes one folder per gene set:
         # ``<method>/enrichment/<geneset>/<backend>_pls<N>_*.tsv``.  Legacy
         # single-call bundles write ``<method>/<backend>_pls<N>_results.tsv``.

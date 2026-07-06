@@ -177,12 +177,17 @@ class TestGenesetResolution:
 
 
 class TestRunTranscriptomics:
-    def test_runs_all_methods(self, patched, tmp_path):
-        cfg = EngineConfig(methods=("pls", "corr"), n_permutations=10)
+    def test_pls_only_runs(self, patched, tmp_path):
+        cfg = EngineConfig(methods=("pls",), n_permutations=10)
         out = run_transcriptomics(np.arange(34.0), _labels_df(34), cfg, tmp_path, "FTD_vs_HC")
-        assert set(out) == {"pls", "corr"}
+        assert set(out) == {"pls"}
         assert patched["fit_count"] == 1
-        assert len(patched["corr"]) == 1
+
+    def test_unsupported_method_raises(self, patched, tmp_path):
+        # The engine correlation backend was removed; PLS is the only method.
+        cfg = EngineConfig(methods=("corr",), n_permutations=10)
+        with pytest.raises(MsnpipEngineError, match="only 'pls' is supported"):
+            run_transcriptomics(np.arange(34.0), _labels_df(34), cfg, tmp_path, "tag")
 
     def test_pls_fits_once_enriches_each_geneset(self, patched, tmp_path):
         cfg = EngineConfig(
@@ -229,11 +234,9 @@ class TestRunTranscriptomics:
         assert patched["bundle_dirs"] == [str(tmp_path / "tag" / "pls")]
 
     def test_output_dir_layout(self, patched, tmp_path):
-        cfg = EngineConfig(methods=("pls", "corr"), n_permutations=10)
+        cfg = EngineConfig(methods=("pls",), n_permutations=10)
         run_transcriptomics(np.arange(34.0), _labels_df(34), cfg, tmp_path, "FTD_vs_HC")
         assert (tmp_path / "FTD_vs_HC" / "pls").is_dir()
-        assert (tmp_path / "FTD_vs_HC" / "corr").is_dir()
-        assert patched["corr"][0]["output_dir"] == tmp_path / "FTD_vs_HC" / "corr"
 
     def test_single_method(self, patched, tmp_path):
         cfg = EngineConfig(methods=("pls",), n_permutations=10)
@@ -246,12 +249,6 @@ class TestRunTranscriptomics:
         run_transcriptomics(rmap, _labels_df(34, 34), cfg, tmp_path, "tag")
         np.testing.assert_array_equal(patched["prepare_data"], np.arange(34.0))
         np.testing.assert_array_equal(patched["prepare_input_rh"], np.arange(34.0, 68.0))
-
-    def test_corr_receives_single_gene_set(self, patched, tmp_path):
-        cfg = EngineConfig(methods=("corr",), n_permutations=10, gene_sets=("lake", "pooled"))
-        run_transcriptomics(np.arange(34.0), _labels_df(34), cfg, tmp_path, "tag")
-        # corr gets one resolved gene set, not the tuple.
-        assert isinstance(patched["corr"][0]["gene_set"], str)
 
 
 # ---------------------------------------------------------------------------
