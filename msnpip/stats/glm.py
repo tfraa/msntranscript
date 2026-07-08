@@ -420,6 +420,34 @@ def regional_group_contrast(
     sub = aligned.loc[keep].copy()
     strength = strength_maps.strength[keep]
     group_indicator = group_mask(sub[group_col], case_label).astype(float)
+
+    # Complete-case analysis: drop any subject with a missing covariate value or a
+    # missing region strength — the whole subject is excluded (listwise), matching
+    # standard complete-case OLS. A single NaN otherwise fails the design SVD
+    # ("SVD did not converge") for every region.
+    cov_na = (
+        sub[covariates].isna().any(axis=1).to_numpy()
+        if covariates
+        else np.zeros(len(sub), dtype=bool)
+    )
+    strength_na = np.isnan(strength).any(axis=1)
+    group_na = group_indicator.isna().to_numpy()
+    valid = ~(cov_na | strength_na | group_na)
+    n_dropped = int((~valid).sum())
+    if n_dropped:
+        logger.warning(
+            "[contrast %s vs %s] dropped %d subject(s) with missing covariates/strength "
+            "(complete-case; %d of %d retained).",
+            case_label,
+            control_label,
+            n_dropped,
+            int(valid.sum()),
+            int(valid.size),
+        )
+    sub = sub.loc[valid]
+    strength = strength[valid]
+    group_indicator = group_indicator.loc[valid]
+
     n_case = int(group_indicator.sum())
     n_control = int(len(sub) - n_case)
     if n_case < 1 or n_control < 1:

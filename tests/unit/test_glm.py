@@ -151,6 +151,40 @@ class TestRegionalGroupContrast:
         model = sm.OLS(sm_maps.strength[:, 0], design.to_numpy()).fit()
         assert res.regional_stat[0] == pytest.approx(model.params[gi], rel=1e-9)
 
+    def test_drops_subject_with_missing_covariate(self, cohort, caplog):
+        df, schema, sm_maps, info = cohort
+        df = df.copy()
+        df.loc[df.index[0], "age"] = np.nan  # one missing covariate value
+        with caplog.at_level(logging.WARNING):
+            res = regional_group_contrast(
+                sm_maps,
+                df,
+                schema,
+                case_label=info["case_label"],
+                control_label=info["control_label"],
+                covariates=["age", "tiv", "sex"],
+                stat="beta",
+            )
+        # Listwise-dropped one subject; the contrast still computes (no SVD crash).
+        assert res.n_case + res.n_control == 19
+        assert np.isfinite(res.regional_stat).any()
+        assert any("dropped" in r.getMessage().lower() for r in caplog.records)
+
+    def test_missing_region_strength_drops_subject(self, cohort):
+        df, schema, sm_maps, info = cohort
+        sm_maps.strength[0, 0] = np.nan  # one missing region strength
+        res = regional_group_contrast(
+            sm_maps,
+            df,
+            schema,
+            case_label=info["case_label"],
+            control_label=info["control_label"],
+            covariates=["age", "tiv", "sex"],
+            stat="beta",
+        )
+        assert res.n_case + res.n_control == 19
+        assert np.isfinite(res.regional_stat).any()
+
     def test_t_stat(self, cohort):
         df, schema, sm_maps, info = cohort
         res = regional_group_contrast(

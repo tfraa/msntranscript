@@ -167,6 +167,25 @@ class Pipeline:
 
     def _stage_msn(self) -> None:
         df, schema = self.ctx["df"], self.ctx["schema"]
+        # Scope the whole run to the groups named in the requested contrasts: any
+        # other group is excluded from the MSN and everything downstream, so the
+        # pipeline only works with what was specified.
+        groups = self._referenced_groups()
+        if groups is not None and schema.group_col in df.columns:
+            gnorm = df[schema.group_col].map(normalize_group_value)
+            n_before = len(df)
+            df = df[gnorm.isin(groups)].copy()
+            self.ctx["df"] = df
+            logger.info(
+                "SCOPE: restricted to group(s) %s — %d/%d subjects kept.",
+                sorted(groups),
+                len(df),
+                n_before,
+            )
+            if df.empty:
+                raise StageError(
+                    "MSN", f"No subjects left after restricting to groups {sorted(groups)}."
+                )
         sm = compute_strength_maps(
             df,
             schema,
@@ -594,6 +613,28 @@ class Pipeline:
             return sorted(set(labels["label"].tolist()))
         except Exception:
             return None
+
+    def _referenced_groups(self):
+        """Normalized group labels referenced by the requested contrasts.
+
+        Returns ``None`` when the run should keep all subjects (no explicit
+        contrast, or a ``'rest'`` control arm that needs every other subject).
+        Otherwise only these groups are used anywhere in the pipeline.
+        """
+        if self.cfg.contrasts:
+            pairs = list(self.cfg.contrasts)
+        elif self.cfg.case is not None:
+            control = self.cfg.control if self.cfg.control is not None else "rest"
+            pairs = [(self.cfg.case, control)]
+        else:
+            return None
+        labels: set[str] = set()
+        for case, control in pairs:
+            if str(control) == "rest":
+                return None
+            labels.add(normalize_group_value(case))
+            labels.add(normalize_group_value(control))
+        return labels
 
     def _contrast_pairs(self):
         if self.cfg.contrasts:
