@@ -613,6 +613,20 @@ class ReportBuilder:
         )
         self._close_page(pdf, fig)
 
+        # Overview: global node-strength distribution across all groups at once.
+        self._figure_page(
+            pdf,
+            self.plots_dir / "overview_violin.png",
+            kicker="Section 3 · Node strength",
+            title="Global node strength across all groups",
+            caption=(
+                "Global node strength per subject, split by group (violin + box + jittered "
+                "points). Descriptive overview of where each group sits; no pairwise test is "
+                "drawn when more than two groups are shown. Group-vs-group significance is in "
+                "the contrast sections."
+            ),
+        )
+
         groups = self._ordered_groups(ctx)
         # Grouped by TYPE: all brain surfaces first (control, then case), then all
         # extremes tables — rather than interleaving per group.
@@ -725,6 +739,22 @@ class ReportBuilder:
             title=f"FDR-significant regions only: {pretty}",
             caption=f"Only regions with FDR < {SIG_ALPHA} are coloured; others shown neutral.",
         )
+
+        # (c') per-region strength violins for the FDR-significant regions (or the
+        # top regions when none are significant), each with the covariate-adjusted
+        # GLM FDR in the bracket.
+        for path in self._glob_tagged(f"{tag}_region-*_violin.png"):
+            reg = path.stem.replace(f"{tag}_region-", "").replace("_violin", "")
+            self._figure_page(
+                pdf,
+                path,
+                kicker=kicker,
+                title=f"Node strength by group — {reg}",
+                caption=(
+                    "Per-region node strength split by group; the bracket shows the "
+                    "covariate-adjusted contrast FDR (not an unadjusted two-group test)."
+                ),
+            )
 
         # (d-f) transcriptomics: PLS parameters, top genes, enrichment.
         self._pls_parameters_page(pdf, tag, kicker)

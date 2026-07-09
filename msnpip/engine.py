@@ -1,6 +1,5 @@
 """
 Thin wrapper around imaging_transcriptomics.run_pls.
-Phase 3, Task T3.1.
 
 The engine itself runs PLS, the spatial-null permutations, and the enrichment
 families, and writes its own TSV/JSON/PNG bundle.  msnpip's job here is narrow:

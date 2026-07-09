@@ -27,7 +27,9 @@ def _two_group_p(a: np.ndarray, b: np.ndarray, test: str) -> float:
     raise ValueError(f"test must be 'mannwhitney'/'ttest', got {test!r}")
 
 
-def _draw_sig_bracket(ax, x1: float, x2: float, data: list[np.ndarray], p: float) -> None:
+def _draw_sig_bracket(
+    ax, x1: float, x2: float, data: list[np.ndarray], p: float, label_prefix: str = "p"
+) -> None:
     """Draw a significance bracket spanning two violins with exact p + stars."""
     top = max(float(np.max(v)) for v in data)
     span = top - min(float(np.min(v)) for v in data)
@@ -35,7 +37,10 @@ def _draw_sig_bracket(ax, x1: float, x2: float, data: list[np.ndarray], p: float
     y = top + pad
     h = 0.4 * pad
     ax.plot([x1, x1, x2, x2], [y, y + h, y + h, y], lw=1.0, color="#444444")
-    label = f"{format_p(p)} {significance_stars(p)}".strip()
+    # format_p renders 'p = ...'; relabel the leading 'p' when a different
+    # statistic is shown (e.g. 'FDR = ...').
+    p_text = format_p(p).replace("p", label_prefix, 1) if label_prefix != "p" else format_p(p)
+    label = f"{p_text} {significance_stars(p)}".strip()
     ax.text((x1 + x2) / 2, y + h, label, ha="center", va="bottom", fontsize=10)
     ax.set_ylim(top=y + h + 2.5 * pad)
 
@@ -49,6 +54,8 @@ def plot_strength_violin(
     group_col: str | None = None,
     group_labels=None,
     test: str = "mannwhitney",
+    pvalue: float | None = None,
+    pvalue_label: str = "p",
     ax=None,
 ):
     """Violin + box + jittered points of node strength, grouped by diagnosis.
@@ -153,8 +160,11 @@ def plot_strength_violin(
     ax.set_ylabel(ylabel)
 
     if len(order) == 2:
-        p = _two_group_p(data[0], data[1], test)
-        _draw_sig_bracket(ax, positions[0], positions[1], data, p)
+        # Use an externally supplied p (e.g. the covariate-adjusted GLM/FDR value)
+        # when given, so the bracket matches the reported inference; otherwise fall
+        # back to a descriptive two-group test on the raw strengths.
+        p = pvalue if pvalue is not None else _two_group_p(data[0], data[1], test)
+        _draw_sig_bracket(ax, positions[0], positions[1], data, p, label_prefix=pvalue_label)
         logger.info("plot_strength_violin: %s vs %s, %s", order[0], order[1], format_p(p))
 
     fig.tight_layout()

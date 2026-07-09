@@ -88,6 +88,54 @@ def test_scope_restricts_to_contrast_groups(tmp_path):
     assert not any("OTHER" in c for c in mean_grp.columns)
 
 
+def _fake_run_transcriptomics(vec, labels_df, eng_cfg, base, tag):
+    for method in eng_cfg.methods:
+        (Path(base) / tag / method).mkdir(parents=True, exist_ok=True)
+    return {m: {} for m in eng_cfg.methods}
+
+
+def test_overview_violin_covers_all_inscope_groups(tmp_path, monkeypatch):
+    import msnpip.pipeline as pipeline_mod
+
+    info = make_synthetic_cohort(tmp_path / "data", n_case=8, n_control=8, seed=6)
+    df = pd.read_csv(info["merged_path"])
+    df.loc[df.index[:4], "group"] = "OTHER"  # third in-scope group
+    three = tmp_path / "data" / "three.csv"
+    df.to_csv(three, index=False)
+    out = tmp_path / "out"
+    cfg = PipelineConfig(
+        io=IOConfig(dataframe=three),
+        output=out,
+        group_col="group",
+        contrasts=(("FTD", "HC"), ("OTHER", "HC")),
+        glm=GLMConfig(predictors=("age", "sex")),
+        engine=EngineConfig(methods=("pls",), n_permutations=10, enrichment_methods=("ensemble",)),
+    )
+    monkeypatch.setattr(pipeline_mod.engine_mod, "run_transcriptomics", _fake_run_transcriptomics)
+    run_pipeline(cfg, stop_stage="FIGURES")
+    assert (out / "plots" / "overview_violin.png").exists()
+
+
+def test_per_region_violins_generated(tmp_path, monkeypatch):
+    import msnpip.pipeline as pipeline_mod
+
+    info = make_synthetic_cohort(tmp_path / "data", n_case=10, n_control=10, seed=8)
+    out = tmp_path / "out"
+    cfg = PipelineConfig(
+        io=IOConfig(dataframe=Path(info["merged_path"])),
+        output=out,
+        group_col="group",
+        case="FTD",
+        control="HC",
+        glm=GLMConfig(predictors=("age", "sex")),
+        engine=EngineConfig(methods=("pls",), n_permutations=10, enrichment_methods=("ensemble",)),
+    )
+    monkeypatch.setattr(pipeline_mod.engine_mod, "run_transcriptomics", _fake_run_transcriptomics)
+    run_pipeline(cfg, stop_stage="FIGURES")
+    # at least one per-region violin exists (fallback top-5 when nothing is FDR-sig)
+    assert list((out / "plots").glob("FTD_vs_HC_region-*_violin.png"))
+
+
 def test_resume_from_contrast_hydrates(df_cfg):
     cfg, out = df_cfg
     run_pipeline(cfg, stop_stage="MSN")

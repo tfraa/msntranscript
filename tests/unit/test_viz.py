@@ -80,6 +80,17 @@ class TestViolin:
         assert "lh_bankssts" in fig.axes[0].get_ylabel()
         plt.close(fig)
 
+    def test_region_with_external_pvalue_in_bracket(self, cohort):
+        df, schema, sm, _ = cohort
+        fig = plot_strength_violin(
+            sm, df, schema, region="lh_bankssts", pvalue=0.0123, pvalue_label="FDR"
+        )
+        ax = fig.axes[0]
+        # the supplied FDR value is shown in the bracket (labelled FDR, not p)
+        assert any("FDR" in t.get_text() for t in ax.texts)
+        assert any("0.012" in t.get_text() for t in ax.texts)
+        plt.close(fig)
+
     def test_unknown_region_raises(self, cohort):
         df, schema, sm, _ = cohort
         with pytest.raises(ValueError, match="region"):

@@ -303,14 +303,59 @@ class Pipeline:
         sm, df, schema = self.ctx["strength_maps"], self.ctx["df"], self.ctx["schema"]
         self.plots_dir.mkdir(parents=True, exist_ok=True)
 
+        # Overview violin: node-strength distribution across ALL in-scope groups
+        # together (descriptive landscape). No group_labels → every group present
+        # in the scoped cohort; >2 groups draws no pairwise significance bracket.
+        import matplotlib.pyplot as _plt
+
+        try:
+            fig = plot_strength_violin(sm, df, schema)
+            fig.savefig(self.plots_dir / "overview_violin.png")
+            _plt.close(fig)
+        except Exception as exc:
+            logger.warning("FIGURES: overview violin failed: %s", exc)
+
         for tag, res, cc, kk in self.ctx.get("contrasts", []):
             work_df, _, _ = self._resolve_contrast_df(df, schema, cc, kk)
             case_lbl, ctrl_lbl = tag.split("_vs_", 1)
             try:
                 fig = plot_strength_violin(sm, work_df, schema, group_labels=[cc, kk])
                 fig.savefig(self.plots_dir / f"{tag}_violin.png")
+                _plt.close(fig)
             except Exception as exc:
                 logger.warning("FIGURES: violin for %s failed: %s", tag, exc)
+            # Per-region violins for the FDR-significant regions (fallback: top-5 by
+            # |t|), with the covariate-adjusted GLM FDR in the bracket so the figure
+            # matches the reported inference (not a fresh unadjusted test).
+            try:
+                fdr = res.pvalue_fdr
+                stat = res.tvalue if res.tvalue is not None else res.regional_stat
+                labels = list(res.region_labels)
+                if fdr is not None:
+                    idx = sorted(
+                        np.where(np.asarray(fdr, float) < SIG_ALPHA)[0], key=lambda i: float(fdr[i])
+                    )
+                else:
+                    idx = []
+                if not idx and stat is not None:  # nothing significant → show top-5 by |stat|
+                    idx = list(np.argsort(-np.abs(np.asarray(stat, float)))[:5])
+                for i in idx[:12]:  # cap to avoid flooding the report
+                    reg = labels[i]
+                    pv = float(fdr[i]) if fdr is not None else None
+                    f = plot_strength_violin(
+                        sm,
+                        work_df,
+                        schema,
+                        region=reg,
+                        group_labels=[cc, kk],
+                        pvalue=pv,
+                        pvalue_label="FDR",
+                    )
+                    safe = re.sub(r"[^A-Za-z0-9._-]", "_", str(reg))
+                    f.savefig(self.plots_dir / f"{tag}_region-{safe}_violin.png")
+                    _plt.close(f)
+            except Exception as exc:
+                logger.warning("FIGURES: per-region violins for %s failed: %s", tag, exc)
             # Per-region t-value bars, split by hemisphere (default region order)
             # with FDR significance asterisks.
             try:
