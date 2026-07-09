@@ -703,6 +703,18 @@ class ReportBuilder:
         )
         self._close_page(pdf, fig)
 
+        # (a0) global node-strength violin for this contrast (case vs control).
+        self._figure_page(
+            pdf,
+            self.plots_dir / f"{tag}_violin.png",
+            kicker=kicker,
+            title=f"Global node strength by group: {pretty}",
+            caption=(
+                "Global node strength per subject, case vs control (violin + box + points). "
+                "The bracket shows a descriptive two-group test on raw strengths."
+            ),
+        )
+
         # (a) difference bar chart (t-values + FDR asterisks) + surfaces.
         self._figure_page(
             pdf,
@@ -743,7 +755,7 @@ class ReportBuilder:
         # (c') per-region strength violins for the FDR-significant regions (or the
         # top regions when none are significant), each with the covariate-adjusted
         # GLM FDR in the bracket.
-        for path in self._glob_tagged(f"{tag}_region-*_violin.png"):
+        for path in sorted(self.plots_dir.glob(f"{tag}_region-*_violin.png")):
             reg = path.stem.replace(f"{tag}_region-", "").replace("_violin", "")
             self._figure_page(
                 pdf,
@@ -1061,53 +1073,6 @@ class ReportBuilder:
                         )
                     ],
                     caption=rank_note,
-                )
-
-        # Gene-set specificity (orthogonal to the spin null): most-specific terms.
-        for path in self._glob_tagged(f"{tag}*_gene_specificity.csv"):
-            try:
-                spec = pd.read_csv(path)
-            except Exception:
-                continue
-            if spec.empty or "p_specificity" not in spec.columns:
-                continue
-            group_cols = [c for c in ("geneset",) if c in spec.columns]
-            groups = spec.groupby(group_cols) if group_cols else [((), spec)]
-            for gkey, sub in groups:
-                gkey = gkey if isinstance(gkey, tuple) else (gkey,)
-                geneset = str(gkey[-1]) if group_cols else "gene set"
-                n_random = int(sub["n_random"].iloc[0]) if "n_random" in sub.columns else 0
-                disp = sub.sort_values("p_specificity", kind="mergesort").head(20)
-                keep = [
-                    c
-                    for c in ("Term", "category_score", "matched_size", "p_specificity")
-                    if c in disp.columns
-                ]
-                disp = disp[keep].reset_index(drop=True)
-                bold = {
-                    (i, "p_specificity")
-                    for i, v in enumerate(disp["p_specificity"])
-                    if pd.notna(v) and float(v) < SIG_ALPHA
-                }
-                emitted = True
-                self._table_page(
-                    pdf,
-                    title=f"Gene-set specificity — {geneset}",
-                    df=disp,
-                    kicker=kicker,
-                    max_rows=24,
-                    bold_cells=bold,
-                    intro=[
-                        (
-                            f"Specificity of each category for {geneset} versus "
-                            f"{n_random} size-matched random gene sets (axis orthogonal to "
-                            "the spatial-spin null). p_specificity < "
-                            f"{SIG_ALPHA} (bold) = the real set scores more extremely than "
-                            "random sets of equal size.",
-                            "p",
-                        )
-                    ],
-                    caption="Ranked by p_specificity (most specific first).",
                 )
 
         if not emitted:

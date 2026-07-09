@@ -589,21 +589,6 @@ class Pipeline:
         if enr_frames:
             self._csv(pd.concat(enr_frames, ignore_index=True), f"{tag}_enrichment")
 
-        # Gene-specificity tables (orthogonal to the spin null): one per gene set,
-        # written as ``.../enrichment/<geneset>/gene_specificity_pls<N>.tsv``.
-        spec_frames = []
-        for f in sorted(bundle_dir.rglob("gene_specificity_*.tsv")):
-            comp = re.search(r"pls(\d+)", f.stem)
-            geneset = f.parent.name if f.parent.parent.name == "enrichment" else ""
-            method = f.parent.parent.parent.name if f.parent.parent.name == "enrichment" else ""
-            tbl = pd.read_csv(f, sep="\t")
-            tbl.insert(0, "component", int(comp.group(1)) if comp else 1)
-            tbl.insert(0, "geneset", geneset)
-            tbl.insert(0, "method", method)
-            spec_frames.append(tbl)
-        if spec_frames:
-            self._csv(pd.concat(spec_frames, ignore_index=True), f"{tag}_gene_specificity")
-
         # Engine plots (PLS variance, enrichment dotplots, etc.).
         for png in sorted(bundle_dir.rglob("*.png")):
             shutil.copy(png, self.plots_dir / f"{tag}_{png.stem}.png")

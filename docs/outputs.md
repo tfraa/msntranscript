@@ -20,7 +20,6 @@ out/
   <tag>_pls.csv
   <tag>_pls_summary.csv
   <tag>_enrichment.csv
-  <tag>_gene_specificity.csv     # size-matched-random-set specificity per category
   report.pdf
   plots/
     <tag>_violin.png
@@ -47,7 +46,6 @@ out/
 | `<tag>_pls.csv` | gene | `component`, `gene`, PLS `zscore`/`weight`, `p`, `fdr` — gene loadings on the contrast map |
 | `<tag>_pls_summary.csv` | PLS component | explained variance, cumulative variance, and the spatial-null p-value per component |
 | `<tag>_enrichment.csv` | gene-set term | `method` (`pls`), `enrichment` (ensemble/gsea/ora backend), `geneset`, `Term`, effect (`nes`/`es` for gsea or `z_score` for ensemble), `p_val`, `fdr` (BH per backend) |
-| `<tag>_gene_specificity.csv` | gene-set term | `geneset`, `Term`, `category_score`, `matched_size`, `p_specificity` (vs size-matched random gene sets), `n_random` |
 
 Node strength is **dimensionless** (a sum of similarity ratios in (0, 1]), so the
 strength and difference maps carry no physical unit.

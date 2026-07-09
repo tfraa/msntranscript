@@ -45,19 +45,12 @@ correlation p-values; no spatial null.
   as a future option; not built in v2.
 
 ### Enrichment validity — three orthogonal axes
-Category/cell-type inference is only as good as its null. msnpip checks three independent axes:
+Category/cell-type inference is only as good as its null. msnpip checks these axes:
 1. **Spatial (spin) null** — the `vasa` surface spin above (Layer A). The recommended, most
    stringent phenotype null (Arnatkeviciute et al. 2023). Verify it is real, not a silent
    shuffle, with `python scripts/verify_vasa_null.py` (asserts resolved==`vasa`, 34 cortical
    parcels, seed honoured) before any publication run.
-2. **Gene-specificity** — orthogonal to the spin null. Each category is compared against many
-   **size-matched random gene sets** drawn from the AHBA (brain-expressed) universe; a small
-   `p_specificity` means the real set scores more extremely than random sets of equal size, i.e.
-   the association is specific, not a generic-gene-set effect. Written to
-   `<TAG>_gene_specificity.csv` and shown in the report. Config: `engine.gene_specificity`,
-   `engine.n_specificity`. (Only ~3% of associations survive *both* the spatial and specificity
-   corrections — Wei et al. via Arnatkeviciute 2023.)
-3. **Null-method sensitivity** — spin tests are distorted by the spherical projection. Re-run the
+2. **Null-method sensitivity** — spin tests are distorted by the spherical projection. Re-run the
    primary result under a non-spin null (`--null-method moran`) into a second output folder, then
    `python scripts/null_method_sensitivity.py VASA_enrichment.csv MORAN_enrichment.csv` reports
    the Jaccard overlap of significant categories. High overlap ⇒ null-robust.

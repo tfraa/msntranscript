@@ -7,12 +7,61 @@ ensemble table is never described as GSEA) and the BH-FDR denominator stated (P3
 
 from __future__ import annotations
 
+import types
 from pathlib import Path
 
+import matplotlib
+
+matplotlib.use("Agg")
+
+import matplotlib.pyplot as plt
 import pandas as pd
 
 from msnpip.config import EngineConfig, IOConfig, PipelineConfig
 from msnpip.report.builder import ReportBuilder
+
+
+def test_contrast_section_emits_coupled_and_per_region_violins(tmp_path):
+    out = tmp_path / "out"
+    (out / "plots").mkdir(parents=True)
+    for name in (
+        "1_vs_0_violin.png",
+        "1_vs_0_region-lh_bankssts_violin.png",
+        "1_vs_0_region-lh_cuneus_violin.png",
+    ):
+        (out / "plots" / name).write_bytes(b"\x89PNG\r\n")
+
+    cfg = PipelineConfig(io=IOConfig(dataframe=Path("x.csv")), output=out, engine=EngineConfig())
+    rb = ReportBuilder(out, cfg)
+
+    seen: list[str] = []
+    rb._figure_page = lambda pdf, png, **kw: seen.append(Path(png).name) or True  # type: ignore[assignment]
+    rb._open_page = lambda pdf: plt.figure()  # type: ignore[assignment]
+    rb._heading = lambda *a, **k: 0.9  # type: ignore[assignment]
+    rb._paragraphs = lambda *a, **k: None  # type: ignore[assignment]
+    rb._close_page = lambda pdf, fig: plt.close(fig)  # type: ignore[assignment]
+    rb._toc_mark = lambda *a, **k: None  # type: ignore[assignment]
+    for m in (
+        "_significant_regions_page",
+        "_region_stats_pages",
+        "_pls_parameters_page",
+        "_top_genes_page",
+        "_enrichment_section",
+    ):
+        setattr(rb, m, lambda *a, **k: None)
+
+    res = types.SimpleNamespace(
+        stat_type="beta",
+        covariates=[],
+        n_case=5,
+        n_control=5,
+        region_labels=["lh_bankssts", "lh_cuneus"],
+    )
+    rb._contrast_section(None, {}, "1_vs_0", res, "1", "0")
+
+    assert "1_vs_0_violin.png" in seen  # coupled per-contrast violin
+    assert "1_vs_0_region-lh_bankssts_violin.png" in seen  # per-region violins (correct dir)
+    assert "1_vs_0_region-lh_cuneus_violin.png" in seen
 
 
 def _curated_both_backends() -> pd.DataFrame:
