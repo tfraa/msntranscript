@@ -97,11 +97,23 @@ msnpip full \
   --exclude-covariate site \
   --correlate-with age --corr-scope global \
   --atlas dk --hemisphere left --regions cort \
-  --method pls --ncomp 1 --n-perm 10000 \
-  --enrichment ensemble gsea \
+  --msn-similarity distance \
+  --method pls --ncomp 2 --n-perm 10000 \
+  --enrichment ensemble gsea ora \
   --geneset lake pooled GO_Biological_Process_2025 KEGG_2021_Human DisGeNET \
   --seed 1234 -v
 ```
+
+Useful flags for the re-analysis:
+
+- `--msn-similarity {distance,correlation}` — edge definition; `correlation` = the canonical
+  Seidlitz/Morgan MS (allows negative edges).
+- `--ncomp 2` — retain PLS1 **and** PLS2 (each gets its own spin-tested component p and gene tables).
+- `--enrichment ensemble gsea ora` — `ensemble` (GCEA) is the primary spin-null test, `gsea` a
+  spin-null cross-check, `ora` the template over-representation test (candidate mechanisms only).
+- `--pool-cases` — with several `--contrast X 0` flags, also runs a supplementary pooled
+  `{X…}_vs_0` contrast alongside the per-group ones (which stay primary).
+- Node strength is fixed to the **mean** of a region's edges (Morgan/Seidlitz).
 
 Reproducibility: the same `--seed` gives byte-identical msnpip-side tables. Pin the
 exact command (or a `--config run.yaml`) in your methods. With a YAML config, only

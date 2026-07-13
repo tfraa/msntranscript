@@ -122,8 +122,8 @@ class TestNodeStrength:
         s = node_strength(toy, agg="mean")
         np.testing.assert_allclose(s, [0.3, 0.5, 0.4])
 
-    def test_default_is_sum(self, toy):
-        np.testing.assert_allclose(node_strength(toy), [0.6, 1.0, 0.8])
+    def test_default_is_mean(self, toy):
+        np.testing.assert_allclose(node_strength(toy), [0.3, 0.5, 0.4])
 
     def test_batched_shape(self):
         m = np.stack([np.array([[np.nan, 0.4, 0.2], [0.4, np.nan, 0.6], [0.2, 0.6, np.nan]])] * 3)

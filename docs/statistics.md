@@ -18,11 +18,10 @@ modified z-score `M = 0.6745 · (x − median) / MAD` (per metric). Inter-region
 the distance kernel `S = 1 / (1 + d / n_metrics)`, where `d` is the Euclidean distance between
 the two regions' standardized 5-metric vectors and `n_metrics = 5` (diagonal NaN). This yields
 a symmetric matrix bounded in `(0, 1]` — similarity is strictly positive, so there are no
-negative edges. The MSN is whole-cortex (both hemispheres). Node strength is the **sum**
-(default) or mean of a region's similarity edges (`strength_agg`, dimensionless). Because every
-region has the same number of edges here, sum and mean differ only by a constant scale — the
-node-strength *map* (and thus all downstream results) is identical up to that factor; they only
-diverge when regions have different numbers of valid edges.
+negative edges. The MSN is whole-cortex (both hemispheres). Node strength is the **mean** of a
+region's similarity edges (Morgan 2019 / Seidlitz 2018; dimensionless). On this complete network
+the mean equals the sum up to a constant scale, so the choice does not affect any downstream
+result; msnpip fixes it to the mean.
 
 Edge definition (`msn.similarity`, `--msn-similarity`): `distance` (default, above) or
 `correlation` — the **canonical morphometric similarity** (Seidlitz 2018 / Morgan 2019), the

@@ -89,7 +89,6 @@ def _add_contrast_args(ap):
 
 def _add_msn_args(ap):
     ap.add_argument("--features", nargs="+", default=_SUP)
-    ap.add_argument("--strength-agg", choices=("mean", "sum"), default=_SUP)
     ap.add_argument(
         "--msn-similarity",
         dest="similarity",
@@ -183,8 +182,6 @@ def _cfg_from_args(args) -> PipelineConfig:
     msn: dict = {}
     if "features" in a:
         msn["features"] = list(a["features"])
-    if "strength_agg" in a:
-        msn["strength_agg"] = a["strength_agg"]
     if "similarity" in a:
         msn["similarity"] = a["similarity"]
 

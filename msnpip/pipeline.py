@@ -195,7 +195,6 @@ class Pipeline:
             atlas=self.cfg.engine.atlas,
             hemisphere="both",
             regions=self.cfg.engine.regions,
-            agg=self.cfg.msn.strength_agg,
             similarity=self.cfg.msn.similarity,
             metrics=tuple(self.cfg.msn.features),
         )
@@ -322,8 +321,18 @@ class Pipeline:
         for tag, res, cc, kk in self.ctx.get("contrasts", []):
             work_df, _, _ = self._resolve_contrast_df(df, schema, cc, kk)
             case_lbl, ctrl_lbl = tag.split("_vs_", 1)
+            # For a pooled case arm (cc is a set of groups) relabel those groups to a
+            # single label so the violin has exactly two arms (pooled cases vs control).
+            plot_case = cc
+            if isinstance(cc, (tuple, list, set, frozenset)):
+                gcol = schema.group_col
+                work_df = work_df.copy()
+                norm = work_df[gcol].map(normalize_group_value)
+                wanted = {normalize_group_value(c) for c in cc}
+                work_df.loc[norm.isin(wanted), gcol] = case_lbl
+                plot_case = case_lbl
             try:
-                fig = plot_strength_violin(sm, work_df, schema, group_labels=[cc, kk])
+                fig = plot_strength_violin(sm, work_df, schema, group_labels=[plot_case, kk])
                 fig.savefig(self.plots_dir / f"{tag}_violin.png")
                 _plt.close(fig)
             except Exception as exc:
@@ -351,7 +360,7 @@ class Pipeline:
                         work_df,
                         schema,
                         region=reg,
-                        group_labels=[cc, kk],
+                        group_labels=[plot_case, kk],
                         pvalue=pv,
                         pvalue_label="FDR",
                     )
@@ -757,7 +766,7 @@ class Pipeline:
             global_strength=np.nanmean(strength, axis=1),
             hemisphere="both",
             regions=self.cfg.engine.regions,
-            agg=self.cfg.msn.strength_agg,
+            agg="mean",
         )
 
 

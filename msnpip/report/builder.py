@@ -544,7 +544,7 @@ class ReportBuilder:
                 "p",
             ),
             (
-                "A region's node strength is the sum of its similarity edges — its total "
+                "A region's node strength is the mean of its similarity edges — its average "
                 "morphometric connectivity within the cortex. The group-mean similarity matrices "
                 "below summarise the network structure of each group.",
                 "p",
@@ -601,7 +601,7 @@ class ReportBuilder:
             [
                 (
                     "The surface maps below show, for each group, the mean regional node strength on the "
-                    "cortex (sequential viridis scale, brighter = stronger). Node strength is the sum "
+                    "cortex (sequential viridis scale, brighter = stronger). Node strength is the mean "
                     "of a region's morphometric-similarity edges; similarity is a dimensionless ratio "
                     "in (0, 1], so node strength is a dimensionless network measure (no physical unit). "
                     "The per-group tables below list each group's 5 highest- and 5 lowest-strength "
@@ -676,16 +676,22 @@ class ReportBuilder:
     def _contrast_section(self, pdf, ctx, tag, res, cc, kk) -> None:
         case_lbl, ctrl_lbl = tag.split("_vs_", 1)
         pretty = f"{case_lbl} vs {ctrl_lbl}"
+        # A "+"-joined case label (e.g. 1+2+3) marks the pooled supplementary arm.
+        pooled = "+" in case_lbl
+        pooled_note = " · SUPPLEMENTARY (pooled cases)" if pooled else ""
         kicker = f"Contrast · {pretty}"
-        self._toc_mark(f"4 · Case-control contrast: {pretty}")
+        self._toc_mark(f"4 · Case-control contrast: {pretty}{pooled_note}")
 
         # Section opener.
         fig = self._open_page(pdf)
+        subtitle = f"Group difference in node strength (statistic: {res.stat_type})"
+        if pooled:
+            subtitle += " — supplementary pooled analysis; the per-group contrasts are primary"
         top = self._heading(
             fig,
             f"Case–control contrast: {pretty}",
             kicker="Section 4",
-            subtitle=f"Group difference in node strength (statistic: {res.stat_type})",
+            subtitle=subtitle,
         )
         covs = ", ".join(res.covariates) if res.covariates else "none"
         self._paragraphs(

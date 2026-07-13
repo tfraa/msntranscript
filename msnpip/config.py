@@ -16,7 +16,6 @@ from typing import Literal
 from msnpip.errors import ConfigurationError
 
 # --- type aliases (spec §4.1) ------------------------------------------------
-StrengthAgg = Literal["mean", "sum"]
 ContrastStat = Literal["beta", "t", "cohen_d"]
 CorrMethod = Literal["pearson", "spearman"]
 GroupLabel = str | int
@@ -93,7 +92,7 @@ class IOConfig:
 @dataclass(frozen=True)
 class MSNConfig:
     features: tuple[str, ...] = ("SurfArea", "GrayVol", "ThickAvg", "MeanCurv", "GausCurv")
-    strength_agg: StrengthAgg = "sum"  # node strength = sum of edge weights (Tomasella et al.)
+    # Node strength = MEAN of a region's edge weights (Morgan 2019 / Seidlitz 2018).
     # Edge definition: "distance" = 1/(1+d/n) kernel (default, strictly positive);
     # "correlation" = Pearson between regions' z-scored metric vectors (canonical
     # morphometric similarity, Seidlitz 2018 / Morgan 2019; allows negative edges).

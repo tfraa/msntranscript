@@ -142,7 +142,7 @@ def build_msn(subject_features: np.ndarray, similarity: str = "distance") -> np.
 # ---------------------------------------------------------------------------
 
 
-def node_strength(msn: np.ndarray, *, agg: str = "sum") -> np.ndarray:
+def node_strength(msn: np.ndarray, *, agg: str = "mean") -> np.ndarray:
     """Compute per-region node strength from similarity matrices.
 
     Node strength is the aggregate of a region's edge weights to all other
@@ -154,7 +154,8 @@ def node_strength(msn: np.ndarray, *, agg: str = "sum") -> np.ndarray:
         ``(n_subjects, n_regions, n_regions)`` (or a single 2-D matrix) with a
         NaN diagonal.
     agg
-        ``"sum"`` (default, per Tomasella et al.) or ``"mean"`` of the edges.
+        ``"mean"`` (default, per Morgan 2019 / Seidlitz 2018) or ``"sum"`` of the
+        edges.  On a complete network the two differ only by a constant scale.
 
     Returns
     -------
@@ -232,7 +233,7 @@ def compute_strength_maps(
     hemisphere: str = "both",
     regions: str = "cort",
     drop_threshold: float = 0.0,
-    agg: str = "sum",
+    agg: str = "mean",
     similarity: str = "distance",
     metrics: tuple[str, ...] = DEFAULT_METRICS,
 ) -> StrengthMaps:
