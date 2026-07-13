@@ -29,6 +29,7 @@ import pandas as pd
 from msnpip.config import EngineConfig
 from msnpip.errors import MsnpipEngineError, MsnpipError, MsnpipSurfaceNullError
 from msnpip.genes.gsea_mainstyle import run_gsea as run_corrected_gsea
+from msnpip.genes.ora_mainstyle import run_ora as run_template_ora
 
 logger = logging.getLogger("msnpip.engine")
 
@@ -364,11 +365,18 @@ def _run_pls_fit_once_enrich_many(
                         geneset_organism=cfg.geneset_organism,
                     )
                 elif backend == "ora":
-                    res_obj.ora(
+                    # Template-style ORA: PLS1± tails defined by the weight ranking
+                    # (|orig.zscored| >= z_cut), Fisher over-representation vs the
+                    # gene background — reproduces the source enrichment (Martins/
+                    # Giacomel). Reported as candidate mechanisms, not primary
+                    # inference. The engine's res_obj.ora thresholded on the (spin)
+                    # p-value, which collapses the tails under the correct null.
+                    run_template_ora(
+                        res_obj,
                         gene_set=resolved,
                         outdir=sub,
-                        p_threshold=cfg.ora_p_threshold,
                         geneset_organism=cfg.geneset_organism,
+                        z_cut=cfg.ora_z_cut,
                     )
                 logger.info("enrichment[%s] gene set %r → %s", backend, label, sub)
             except Exception as exc:

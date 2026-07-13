@@ -111,6 +111,13 @@ def _add_engine_args(ap):
     ap.add_argument("--hemisphere", choices=("left", "both"), default=_SUP)
     ap.add_argument("--compare-hemispheres", action="store_true", default=_SUP)
     ap.add_argument(
+        "--pool-cases",
+        dest="pool_cases",
+        action="store_true",
+        default=_SUP,
+        help="also run a pooled contrast (union of specified cases per control) alongside each",
+    )
+    ap.add_argument(
         "--null-method",
         choices=("vasa", "alexander_bloch", "moran", "auto", "random"),
         dest="null_method",
@@ -192,6 +199,7 @@ def _cfg_from_args(args) -> PipelineConfig:
     for src, dst in (
         ("hemisphere", "hemisphere"),
         ("compare_hemispheres", "compare_hemispheres"),
+        ("pool_cases", "pool_cases"),
         ("null_method", "null_method"),
         ("n_perm", "n_permutations"),
         ("seed", "seed"),

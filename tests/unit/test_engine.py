@@ -111,6 +111,15 @@ def patched(monkeypatch):
         rec["corr"].append({"data": np.asarray(data), **kwargs})
         return _fake_result(kwargs.get("null_method", "vasa"))
 
+    # gsea + ora now run through msnpip functions (not res_obj methods).
+    def fake_template_ora(res_obj, gene_set, outdir, geneset_organism="Human", z_cut=3.0, **k):
+        rec["enrich"].append({"backend": "ora", "gene_set": gene_set, "outdir": str(outdir)})
+        Path(outdir, "ora_pls1_results.tsv").write_text("Term\tp_val\n1\t0.1\n", encoding="utf-8")
+
+    def fake_corrected_gsea(res_obj, gene_set, outdir, geneset_organism="Human", **k):
+        rec["enrich"].append({"backend": "gsea", "gene_set": gene_set, "outdir": str(outdir)})
+        Path(outdir, "gsea_pls1_results.tsv").write_text("Term\tp_val\n1\t0.1\n", encoding="utf-8")
+
     monkeypatch.setattr(_shared, "prepare_analysis_inputs", fake_prepare, raising=True)
     monkeypatch.setattr(_shared, "pls_components", lambda a, g, e, o: (), raising=True)
     monkeypatch.setattr(
@@ -132,6 +141,8 @@ def patched(monkeypatch):
     )
     monkeypatch.setattr(engine.imt, "build_run_config", fake_build_run_config, raising=False)
     monkeypatch.setattr(engine.imt, "run_corr", fake_run_corr, raising=False)
+    monkeypatch.setattr(engine, "run_template_ora", fake_template_ora, raising=True)
+    monkeypatch.setattr(engine, "run_corrected_gsea", fake_corrected_gsea, raising=True)
     return rec
 
 

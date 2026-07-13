@@ -37,6 +37,9 @@ class EngineConfig:
     hemisphere: Literal["left", "both"] = "left"
     compare_hemispheres: bool = False
     regions: Literal["cort", "cort+sub"] = "cort"
+    # Run a supplementary pooled contrast (union of the specified cases per
+    # control, e.g. 1v0/2v0/3v0 → {1,2,3}v0) alongside the per-contrast analyses.
+    pool_cases: bool = False
     n_components: int | None = 1
     var: float | None = None
     n_permutations: int = 10000
@@ -46,9 +49,12 @@ class EngineConfig:
     # (vasa → alexander_bloch → random) instead of hard-failing. Records the
     # resolved null; a degraded (random) null is warned, not fatal.
     allow_null_fallback: bool = True
+    # ensemble (GCEA) + gsea run on the spin null (rigorous); ora is the template
+    # over-representation test (candidate mechanisms, weight-ranked tails).
     enrichment_methods: tuple[Literal["ensemble", "gsea", "ora", "none"], ...] = (
         "ensemble",
         "gsea",
+        "ora",
     )
     # Names resolve to the .gmt files bundled in ``msnpip/genes`` so enrichment
     # runs fully offline (lake/pooled fall back to the engine's packaged sets).
@@ -61,6 +67,9 @@ class EngineConfig:
     )
     geneset_organism: str = "Human"
     ora_p_threshold: float | None = None
+    # Weight-ranking cut (|standardized loading|) defining the PLS1± tails for the
+    # template ORA. 3.0 = the classic Z>3 cut used by the source literature.
+    ora_z_cut: float = 3.0
     seed: int = 1234
     n_jobs: int = 1
 

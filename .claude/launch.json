@@ -1,0 +1,16 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "personal-site-preview",
+      "runtimeExecutable": "C:\\Program Files\\nodejs\\node.exe",
+      "runtimeArgs": [
+        "C:/Users/Utente/OneDrive/Desktop/a-look-into-my-mind/node_modules/astro/astro.js",
+        "preview",
+        "--root",
+        "C:/Users/Utente/OneDrive/Desktop/a-look-into-my-mind"
+      ],
+      "port": 4321
+    }
+  ]
+}

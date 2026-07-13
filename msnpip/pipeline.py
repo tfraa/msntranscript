@@ -66,6 +66,9 @@ STAGES = [
 
 
 def _tag(case, control) -> str:
+    # A pooled case arm is a collection of group labels → "1+2+3".
+    if isinstance(case, (tuple, list, set, frozenset)):
+        case = "+".join(str(c) for c in sorted(case, key=str))
     return f"{case}_vs_{control}"
 
 
@@ -668,19 +671,47 @@ class Pipeline:
 
     def _contrast_pairs(self):
         if self.cfg.contrasts:
-            return list(self.cfg.contrasts)
-        if self.cfg.case is not None:
+            pairs = list(self.cfg.contrasts)
+        elif self.cfg.case is not None:
             control = self.cfg.control if self.cfg.control is not None else "rest"
-            return [(self.cfg.case, control)]
-        gcol = self.ctx["schema"].group_col
-        if gcol is None:
-            raise StageError("CONTRAST", "No group column and no contrast specified.")
-        groups = list(pd.unique(self.ctx["df"][gcol].astype(str)))
-        if len(groups) != 2:
-            raise StageError(
-                "CONTRAST", f"{len(groups)} groups found; specify --case/--control or --contrast."
+            pairs = [(self.cfg.case, control)]
+        else:
+            gcol = self.ctx["schema"].group_col
+            if gcol is None:
+                raise StageError("CONTRAST", "No group column and no contrast specified.")
+            groups = list(pd.unique(self.ctx["df"][gcol].astype(str)))
+            if len(groups) != 2:
+                raise StageError(
+                    "CONTRAST",
+                    f"{len(groups)} groups found; specify --case/--control or --contrast.",
+                )
+            pairs = [(groups[0], groups[1])]
+        return pairs + self._pooled_pairs(pairs)
+
+    def _pooled_pairs(self, pairs):
+        """Supplementary pooled contrasts: union the specified cases per control.
+
+        Runs *alongside* the per-contrast analyses (which stay primary) when
+        ``engine.pool_cases`` is set — e.g. contrasts 1v0/2v0/3v0 add {1,2,3}v0.
+        Only controls with more than one distinct case are pooled.
+        """
+        if not getattr(self.cfg.engine, "pool_cases", False):
+            return []
+        from collections import OrderedDict
+
+        by_control: OrderedDict[str, list] = OrderedDict()
+        for case, control in pairs:
+            if isinstance(case, (tuple, list, set, frozenset)) or str(control) == "rest":
+                continue  # skip already-pooled or 'rest' arms
+            by_control.setdefault(normalize_group_value(control), []).append(
+                normalize_group_value(case)
             )
-        return [(groups[0], groups[1])]
+        pooled = []
+        for control_norm, cases in by_control.items():
+            uniq = sorted(set(cases), key=str)
+            if len(uniq) > 1:
+                pooled.append((tuple(uniq), control_norm))
+        return pooled
 
     def _resolve_contrast_df(self, df, schema, case, control):
         """Return (df, case_label, control_label), synthesising a 'rest' arm if needed."""

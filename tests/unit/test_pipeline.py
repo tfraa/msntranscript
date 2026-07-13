@@ -136,6 +136,46 @@ def test_per_region_violins_generated(tmp_path, monkeypatch):
     assert list((out / "plots").glob("FTD_vs_HC_region-*_violin.png"))
 
 
+def test_pooled_cases_contrast_runs_alongside_per_contrast(tmp_path, monkeypatch):
+    import msnpip.pipeline as pipeline_mod
+
+    info = make_synthetic_cohort(tmp_path / "data", n_case=12, n_control=6, seed=9)
+    df = pd.read_csv(info["merged_path"])
+    df["group"] = ["1"] * 4 + ["2"] * 4 + ["3"] * 4 + ["0"] * 6  # cases 1/2/3, control 0
+    multi = tmp_path / "data" / "multi.csv"
+    df.to_csv(multi, index=False)
+    out = tmp_path / "out"
+    cfg = PipelineConfig(
+        io=IOConfig(dataframe=multi),
+        output=out,
+        group_col="group",
+        contrasts=(("1", "0"), ("2", "0"), ("3", "0")),
+        glm=GLMConfig(predictors=("age", "sex")),
+        engine=EngineConfig(methods=("pls",), n_permutations=10, pool_cases=True),
+    )
+    monkeypatch.setattr(pipeline_mod.engine_mod, "run_transcriptomics", _fake_run_transcriptomics)
+    run_pipeline(cfg, stop_stage="CONTRAST")
+
+    diff = pd.read_csv(out / "case_control_difference_maps.csv")
+    cols = " ".join(diff.columns)
+    assert "1_vs_0" in cols  # per-contrast (primary) still present
+    assert "1+2+3_vs_0" in cols  # pooled supplementary present
+
+
+def test_pooled_pairs_helper(tmp_path):
+    cfg = PipelineConfig(
+        io=IOConfig(dataframe=Path("x.csv")),
+        output=tmp_path,
+        group_col="g",
+        engine=EngineConfig(pool_cases=True),
+    )
+    p = Pipeline(cfg)
+    pooled = p._pooled_pairs([("1", "0"), ("2", "0"), ("3", "0")])
+    assert pooled == [(("1", "2", "3"), "0")]
+    # no pooling when only one case per control
+    assert p._pooled_pairs([("1", "0")]) == []
+
+
 def test_resume_from_contrast_hydrates(df_cfg):
     cfg, out = df_cfg
     run_pipeline(cfg, stop_stage="MSN")

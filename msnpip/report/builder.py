@@ -912,57 +912,62 @@ class ReportBuilder:
         files = self._glob_tagged(f"{tag}*_pls.csv")
         for path in files:
             try:
-                df = pd.read_csv(path)
+                full = pd.read_csv(path)
             except Exception:
                 continue
-            if df.empty:
+            if full.empty:
                 continue
-            # First (or only) component.
-            if "component" in df.columns:
-                comp = sorted(df["component"].dropna().unique())[0]
-                df = df[df["component"] == comp]
-                comp_label = f" (component {int(comp)})"
-            else:
-                comp_label = ""
-            score_col = next((c for c in ("zscore", "weight", "score") if c in df.columns), None)
-            if score_col is None:
-                continue
-            ordered = df.sort_values(score_col, ascending=False)
-            keep = [c for c in ("gene", score_col, "p", "fdr") if c in ordered.columns]
-            top = ordered.head(20)[keep].copy()
-            bottom = ordered.tail(20)[keep].iloc[::-1].copy()
-            variant = path.stem[len(tag) :].replace("_pls", "").strip("_")
-            suffix = f" · {variant}" if variant else ""
-            self._table_page(
-                pdf,
-                title=f"Top 20 positively-weighted genes{comp_label}{suffix}",
-                df=top,
-                kicker=kicker,
-                max_rows=20,
-                intro=[
-                    (
-                        "Genes whose expression is most positively associated with the "
-                        "case-control node-strength difference (ranked by PLS weight).",
-                        "p",
-                    )
-                ],
-                caption=f"Ranked by {score_col} (descending).",
+            variant0 = path.stem[len(tag) :].replace("_pls", "").strip("_")
+            # Emit top/bottom genes for EVERY retained component (PLS1, PLS2, …).
+            comps = (
+                sorted(full["component"].dropna().unique())
+                if "component" in full.columns
+                else [None]
             )
-            self._table_page(
-                pdf,
-                title=f"Top 20 negatively-weighted genes{comp_label}{suffix}",
-                df=bottom,
-                kicker=kicker,
-                max_rows=20,
-                intro=[
-                    (
-                        "Genes whose expression is most negatively associated with the "
-                        "case-control node-strength difference.",
-                        "p",
-                    )
-                ],
-                caption=f"Ranked by {score_col} (ascending).",
-            )
+            for comp in comps:
+                df = full if comp is None else full[full["component"] == comp]
+                comp_label = "" if comp is None else f" (component {int(comp)})"
+                self._top_genes_for(pdf, df, kicker, comp_label, variant0)
+
+    def _top_genes_for(self, pdf, df, kicker, comp_label, variant0) -> None:
+        score_col = next((c for c in ("zscore", "weight", "score") if c in df.columns), None)
+        if score_col is None:
+            return
+        ordered = df.sort_values(score_col, ascending=False)
+        keep = [c for c in ("gene", score_col, "p", "fdr") if c in ordered.columns]
+        top = ordered.head(20)[keep].copy()
+        bottom = ordered.tail(20)[keep].iloc[::-1].copy()
+        suffix = f" · {variant0}" if variant0 else ""
+        self._table_page(
+            pdf,
+            title=f"Top 20 positively-weighted genes{comp_label}{suffix}",
+            df=top,
+            kicker=kicker,
+            max_rows=20,
+            intro=[
+                (
+                    "Genes whose expression is most positively associated with the "
+                    "case-control node-strength difference (ranked by PLS weight).",
+                    "p",
+                )
+            ],
+            caption=f"Ranked by {score_col} (descending).",
+        )
+        self._table_page(
+            pdf,
+            title=f"Top 20 negatively-weighted genes{comp_label}{suffix}",
+            df=bottom,
+            kicker=kicker,
+            max_rows=20,
+            intro=[
+                (
+                    "Genes whose expression is most negatively associated with the "
+                    "case-control node-strength difference.",
+                    "p",
+                )
+            ],
+            caption=f"Ranked by {score_col} (ascending).",
+        )
 
     def _enrichment_section(self, pdf, tag: str, kicker: str, pretty: str) -> None:
         emitted = False
@@ -986,7 +991,18 @@ class ReportBuilder:
                 emitted = True
         # Enrichment table(s) — most significant terms, one table per gene set
         # (and per backend when both ensemble and GSEA were run).
-        prefer = ["Term", "es", "nes", "z_score", "category_score", "p_val", "p", "fdr"]
+        prefer = [
+            "Term",
+            "direction",
+            "es",
+            "nes",
+            "z_score",
+            "category_score",
+            "odds_ratio",
+            "p_val",
+            "p",
+            "fdr",
+        ]
         for path in self._glob_tagged(f"{tag}*_enrichment.csv"):
             try:
                 df = pd.read_csv(path)

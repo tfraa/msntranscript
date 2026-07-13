@@ -44,8 +44,15 @@ def normalize_group_value(value) -> str:
 
 def group_mask(series: pd.Series, label) -> pd.Series:
     """Boolean mask of *series* rows whose group value matches *label*,
-    robust to numeric/string differences (``1`` vs ``1.0`` vs ``'1'``)."""
-    return series.map(normalize_group_value) == normalize_group_value(label)
+    robust to numeric/string differences (``1`` vs ``1.0`` vs ``'1'``).
+
+    *label* may be a single value or a collection of values (for a pooled arm,
+    e.g. ``(1, 2, 3)`` → any of those groups)."""
+    normalized = series.map(normalize_group_value)
+    if isinstance(label, (list, tuple, set, frozenset)):
+        wanted = {normalize_group_value(x) for x in label}
+        return normalized.isin(wanted)
+    return normalized == normalize_group_value(label)
 
 
 def benjamini_hochberg(pvalues) -> np.ndarray:

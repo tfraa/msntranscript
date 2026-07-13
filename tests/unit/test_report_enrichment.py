@@ -64,6 +64,27 @@ def test_contrast_section_emits_coupled_and_per_region_violins(tmp_path):
     assert "1_vs_0_region-lh_cuneus_violin.png" in seen
 
 
+def test_top_genes_page_covers_all_components(tmp_path):
+    out = tmp_path / "out"
+    out.mkdir(parents=True)
+    pd.DataFrame(
+        {
+            "component": [1, 1, 2, 2],
+            "gene": ["A", "B", "C", "D"],
+            "zscore": [3.0, -3.0, 2.0, -2.0],
+            "p": [0.01, 0.02, 0.03, 0.04],
+            "fdr": [0.1, 0.2, 0.3, 0.4],
+        }
+    ).to_csv(out / "TAG_pls.csv", index=False)
+    cfg = PipelineConfig(io=IOConfig(dataframe=Path("x.csv")), output=out, engine=EngineConfig())
+    rb = ReportBuilder(out, cfg)
+    titles: list[str] = []
+    rb._table_page = lambda pdf, title, df, **kw: titles.append(title)  # type: ignore[assignment]
+    rb._top_genes_page(None, "TAG", "kick")
+    assert any("component 1" in t for t in titles)
+    assert any("component 2" in t for t in titles)  # PLS2 now reported, not just PLS1
+
+
 def _curated_both_backends() -> pd.DataFrame:
     return pd.DataFrame(
         {
