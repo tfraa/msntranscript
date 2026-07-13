@@ -893,8 +893,10 @@ class ReportBuilder:
                 (
                     "Partial least squares regresses the regional case-control difference map onto "
                     "Allen Human Brain Atlas gene expression. Each component's explained variance is "
-                    "tested against a spatial-null distribution; the p-value reflects spatial "
-                    "specificity.",
+                    "tested against the spatial-spin null; this component-level p-value is the "
+                    "PRIMARY, spatially-corrected result (a significant component means the "
+                    "transcriptomic axis explains the map beyond spatial autocorrelation). The "
+                    "downstream gene-set enrichment characterises that axis.",
                     "p",
                 ),
             ]
@@ -1059,18 +1061,26 @@ class ReportBuilder:
                 )
                 emitted = True
                 suffix = f" ({backend})" if backend else ""
-                # Backend-specific effect description (so an ensemble table is not
-                # mislabelled as GSEA and vice-versa).
+                # Backend-specific role + effect description. Two-tier framing:
+                # GCEA (ensemble) is the PRIMARY spin-null test; GSEA is a spin-null
+                # cross-check; ORA is the template over-representation test, reported
+                # only as candidate mechanisms (not spatial-null-corrected).
                 effect = {
                     "ensemble": (
-                        "z_score is the enrichment effect (mean z-scored gene weight "
-                        "per category vs the spatial-spin null)"
+                        "PRIMARY (spatial-spin null). z_score is the enrichment effect "
+                        "(mean z-scored gene weight per category vs the spin null)"
                     ),
                     "gsea": (
-                        "nes/es is the enrichment effect (running-sum statistic, genes "
-                        "re-ranked per spin surrogate)"
+                        "secondary cross-check (spatial-spin null). nes/es is the "
+                        "enrichment effect (running-sum, genes re-ranked per spin surrogate)"
                     ),
-                    "ora": "overlap counts (hypergeometric; reproduction/exploratory only, not inference)",
+                    "ora": (
+                        "CANDIDATE MECHANISMS ONLY — over-representation (Fisher, random-gene "
+                        "null) of the weight-ranked PLS1± tails, for comparability with the "
+                        "source literature (Martins 2022, Giacomel 2026). NOT spatial-null- "
+                        "or co-expression-corrected; do not treat as primary inference. "
+                        "odds_ratio is the effect"
+                    ),
                 }.get(backend, "the leading column is the enrichment effect")
                 self._table_page(
                     pdf,

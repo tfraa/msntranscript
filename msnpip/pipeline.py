@@ -196,6 +196,7 @@ class Pipeline:
             hemisphere="both",
             regions=self.cfg.engine.regions,
             agg=self.cfg.msn.strength_agg,
+            similarity=self.cfg.msn.similarity,
             metrics=tuple(self.cfg.msn.features),
         )
         self.ctx["strength_maps"] = sm

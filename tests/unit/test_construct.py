@@ -44,6 +44,25 @@ class TestBuildMSN:
         assert np.nanmin(msn) > 0.0
         assert np.nanmax(msn) <= 1.0
 
+    def test_correlation_similarity_is_pearson_in_minus1_1(self):
+        rng = np.random.default_rng(2)
+        feats = rng.normal(size=(12, 5))
+        corr = build_msn(feats, similarity="correlation")
+        dist = build_msn(feats, similarity="distance")
+        assert corr.shape == (12, 12)
+        assert np.all(np.isnan(np.diag(corr)))
+        off = ~np.eye(12, dtype=bool)
+        # symmetric, in [-1, 1], and can go negative (unlike the distance kernel)
+        np.testing.assert_allclose(corr[off], corr.T[off])
+        assert np.nanmin(corr) >= -1.0001 and np.nanmax(corr) <= 1.0001
+        assert np.nanmin(corr) < 0.0  # correlation MS allows anti-correlated edges
+        assert not np.allclose(corr[off], dist[off])  # genuinely different network
+
+    def test_unknown_similarity_raises(self):
+        feats = np.random.default_rng(3).normal(size=(6, 5))
+        with pytest.raises(MSNInputError, match="similarity"):
+            build_msn(feats, similarity="cosine")
+
     def test_hand_checked_single_metric(self):
         # features [1,2,3] (one metric): median=2, MAD=1 → M = 0.6745*[-1,0,1]
         # d(i,j)=|Mi-Mj|; S = 1/(1 + d/n_metrics), n_metrics=1

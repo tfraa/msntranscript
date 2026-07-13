@@ -19,7 +19,16 @@ the distance kernel `S = 1 / (1 + d / n_metrics)`, where `d` is the Euclidean di
 the two regions' standardized 5-metric vectors and `n_metrics = 5` (diagonal NaN). This yields
 a symmetric matrix bounded in `(0, 1]` — similarity is strictly positive, so there are no
 negative edges. The MSN is whole-cortex (both hemispheres). Node strength is the **sum**
-(default) or mean of a region's similarity edges (`strength_agg`, dimensionless).
+(default) or mean of a region's similarity edges (`strength_agg`, dimensionless). Because every
+region has the same number of edges here, sum and mean differ only by a constant scale — the
+node-strength *map* (and thus all downstream results) is identical up to that factor; they only
+diverge when regions have different numbers of valid edges.
+
+Edge definition (`msn.similarity`, `--msn-similarity`): `distance` (default, above) or
+`correlation` — the **canonical morphometric similarity** (Seidlitz 2018 / Morgan 2019), the
+Pearson correlation between the two regions' z-scored metric vectors, `∈ [-1, 1]` (allows
+negative edges). Use `correlation` to match that literature; note that with only 5 features the
+per-pair correlation is comparatively noisy (Seidlitz used ~10).
 
 ### 2. Group contrast (subject-level)
 Per region, OLS of `strength ~ group + covariates`; the exported regional statistic is the
@@ -79,6 +88,13 @@ would need a non-spatial null and are not part of the headline inference.)
   anti-conservative — pure-H0 FPR ≈0.7); significance is a magnitude two-sided empirical `p` with
   Davison–Hinkley `+1/+1`, and `fdr` is **BH across the categories tested** (same convention as
   ensemble). Only `pls` gene-ranking is supported; the engine's `corr` backend is not used.
+- **Two-tier reporting.** The **rigorous, primary** result is the **component-level** spin-null
+  test (a significant PLS1/PLS2 means the transcriptomic axis explains the map beyond spatial
+  autocorrelation). Enrichment then *characterises* that axis: **GCEA (`ensemble`) is the primary
+  spin-null enrichment**, `gsea` a spin-null cross-check, and **`ora` is a template
+  over-representation test** (Fisher on the weight-ranked PLS1± tails, `ora_z_cut`) reported as
+  **candidate mechanisms only** — the random-gene null used by the source literature (Martins
+  2022, Giacomel 2026), *not* spatial-null-corrected, never primary inference.
 
 ## Reporting caveats `[PUB]`
 - Empirical p-resolution is `1/(B+1)`; with ~15,677 genes (DK) even 10⁴ permutations may not

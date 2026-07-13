@@ -61,11 +61,19 @@ def _modified_zscore(features: np.ndarray) -> np.ndarray:
     return out
 
 
-def _build_one(features: np.ndarray) -> np.ndarray:
+def _build_one(features: np.ndarray, similarity: str = "distance") -> np.ndarray:
     """Build one subject's region×region morphometric similarity matrix.
 
-    Modified-z-score each metric across regions, take the multivariate Euclidean
-    distance between regions, then convert to similarity ``1/(1 + d/n_metrics)``.
+    Each metric is modified-z-scored across regions, then edges are computed by
+    one of:
+
+    * ``"distance"`` (default) — the multivariate Euclidean distance between
+      regions converted to a similarity ``1/(1 + d/n_metrics)`` ∈ (0, 1]
+      (strictly positive; Tomasella-style).
+    * ``"correlation"`` — the Pearson correlation between the two regions'
+      z-scored metric vectors ∈ [-1, 1] (the canonical morphometric similarity of
+      Seidlitz 2018 / Morgan 2019; **can be negative**).
+
     The diagonal is set to NaN (a region has no self-edge).
     """
     all_nan = np.all(np.isnan(features), axis=1)
@@ -79,14 +87,21 @@ def _build_one(features: np.ndarray) -> np.ndarray:
 
     n_metrics = features.shape[1]
     normalized = _modified_zscore(features)
-    distance = cdist(normalized, normalized, metric="euclidean")
-    similarity = 1.0 / (1.0 + distance / float(n_metrics))
-    similarity = np.atleast_2d(similarity)
-    np.fill_diagonal(similarity, np.nan)
-    return similarity
+    if similarity == "correlation":
+        sim = np.corrcoef(normalized)
+    elif similarity == "distance":
+        distance = cdist(normalized, normalized, metric="euclidean")
+        sim = 1.0 / (1.0 + distance / float(n_metrics))
+    else:
+        raise MSNInputError(
+            f"unknown similarity {similarity!r}; expected 'distance' or 'correlation'."
+        )
+    sim = np.atleast_2d(sim)
+    np.fill_diagonal(sim, np.nan)
+    return sim
 
 
-def build_msn(subject_features: np.ndarray) -> np.ndarray:
+def build_msn(subject_features: np.ndarray, similarity: str = "distance") -> np.ndarray:
     """Construct per-subject MSNs.
 
     Parameters
@@ -117,7 +132,7 @@ def build_msn(subject_features: np.ndarray) -> np.ndarray:
     n_subjects, n_regions, _ = arr.shape
     out = np.empty((n_subjects, n_regions, n_regions), dtype=float)
     for s in range(n_subjects):
-        out[s] = _build_one(arr[s])
+        out[s] = _build_one(arr[s], similarity=similarity)
 
     return out[0] if single else out
 
@@ -218,6 +233,7 @@ def compute_strength_maps(
     regions: str = "cort",
     drop_threshold: float = 0.0,
     agg: str = "sum",
+    similarity: str = "distance",
     metrics: tuple[str, ...] = DEFAULT_METRICS,
 ) -> StrengthMaps:
     """Build MSNs and node-strength maps for a cohort.
@@ -339,7 +355,7 @@ def compute_strength_maps(
     subject_ids = [all_ids[i] for i in kept_idx]
     kept_tensor = tensor[kept_idx]
 
-    matrix = build_msn(kept_tensor)
+    matrix = build_msn(kept_tensor, similarity=similarity)
     strength = node_strength(matrix, agg=agg)
     global_strength = np.nanmean(strength, axis=1)
 

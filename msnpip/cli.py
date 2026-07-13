@@ -90,6 +90,13 @@ def _add_contrast_args(ap):
 def _add_msn_args(ap):
     ap.add_argument("--features", nargs="+", default=_SUP)
     ap.add_argument("--strength-agg", choices=("mean", "sum"), default=_SUP)
+    ap.add_argument(
+        "--msn-similarity",
+        dest="similarity",
+        choices=("distance", "correlation"),
+        default=_SUP,
+        help="MSN edge definition: distance kernel (default) or canonical Pearson correlation",
+    )
 
 
 def _add_glm_args(ap):
@@ -178,6 +185,8 @@ def _cfg_from_args(args) -> PipelineConfig:
         msn["features"] = list(a["features"])
     if "strength_agg" in a:
         msn["strength_agg"] = a["strength_agg"]
+    if "similarity" in a:
+        msn["similarity"] = a["similarity"]
 
     glm: dict = {}
     if "predictors" in a:

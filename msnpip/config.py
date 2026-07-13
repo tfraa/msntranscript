@@ -94,6 +94,10 @@ class IOConfig:
 class MSNConfig:
     features: tuple[str, ...] = ("SurfArea", "GrayVol", "ThickAvg", "MeanCurv", "GausCurv")
     strength_agg: StrengthAgg = "sum"  # node strength = sum of edge weights (Tomasella et al.)
+    # Edge definition: "distance" = 1/(1+d/n) kernel (default, strictly positive);
+    # "correlation" = Pearson between regions' z-scored metric vectors (canonical
+    # morphometric similarity, Seidlitz 2018 / Morgan 2019; allows negative edges).
+    similarity: Literal["distance", "correlation"] = "distance"
 
 
 @dataclass(frozen=True)
