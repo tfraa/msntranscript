@@ -5,8 +5,12 @@ The engine itself runs PLS, the spatial-null permutations, and the enrichment
 families, and writes its own TSV/JSON/PNG bundle.  msnpip's job here is narrow:
 validate the already-aligned input, dispatch the engine (PLS fits once then
 enriches each gene set), wrap engine exceptions with context, and manage the
-spatial-null policy.  PLS is the only gene-ranking method; the engine's
-correlation backend is not used.
+spatial-null policy.  Two gene-ranking methods are supported: ``pls`` (the
+default, multivariate) and ``corr`` (mass-univariate map↔gene correlation).
+Both run the *same* spatial-null permutations and feed the *same* corrected
+enrichment backends (per-surrogate re-ranked GSEA, template ORA, GCEA); the
+engine's own correlation GSEA (which freezes gene positions, like its PLS GSEA)
+is deliberately bypassed.
 
 Surface-null note: the pinned engine ships the DK parcellation only as a
 FreeSurfer ``.annot``, which neuromaps' spin-null loader (``load_gifti``) cannot
@@ -21,6 +25,7 @@ from __future__ import annotations
 import logging
 import re
 from pathlib import Path
+from types import SimpleNamespace
 
 import imaging_transcriptomics as imt
 import numpy as np
@@ -363,6 +368,7 @@ def _run_pls_fit_once_enrich_many(
                         gene_set=resolved,
                         outdir=sub,
                         geneset_organism=cfg.geneset_organism,
+                        n_jobs=cfg.n_jobs,
                     )
                 elif backend == "ora":
                     # Template-style ORA: PLS1± tails defined by the weight ranking
@@ -373,6 +379,189 @@ def _run_pls_fit_once_enrich_many(
                     # p-value, which collapses the tails under the correct null.
                     run_template_ora(
                         res_obj,
+                        gene_set=resolved,
+                        outdir=sub,
+                        geneset_organism=cfg.geneset_organism,
+                        z_cut=cfg.ora_z_cut,
+                    )
+                logger.info("enrichment[%s] gene set %r → %s", backend, label, sub)
+            except Exception as exc:
+                logger.warning("enrichment[%s] failed for gene set %r: %s", backend, gene_set, exc)
+    return result
+
+
+def _corr_enrichment_adapter(corr_genes):
+    """Present the engine's ``CorrGenes`` as the interface the corrected GSEA/ORA
+    backends read from a PLS result object.
+
+    The corrected GSEA (:func:`msnpip.genes.gsea_mainstyle.run_gsea`) and template
+    ORA (:func:`msnpip.genes.ora_mainstyle.run_ora`) only touch
+    ``n_components``/``orig.genes``/``orig.zscored``/``boot.weights``.  A
+    correlation run has a single "component": the observed z-scored correlations
+    give the ranking, and the per-surrogate correlation nulls are the boot weights
+    (the GSEA backend re-ranks each surrogate column itself).
+    """
+    from scipy.stats import zscore
+
+    if corr_genes.boot_corr is None:
+        raise MsnpipEngineError(
+            "corr enrichment needs stored permutation correlations "
+            "(store_boot_corr was disabled)."
+        )
+    genes = np.asarray(corr_genes.genes[:, 0], dtype=object).reshape(1, -1)
+    observed = np.asarray(corr_genes.corr[0, :], dtype=float)
+    zscored = zscore(observed, ddof=1).reshape(1, -1)
+    boot = np.asarray(corr_genes.boot_corr, dtype=float)[None, :, :]
+    return SimpleNamespace(
+        n_components=1,
+        orig=SimpleNamespace(genes=genes, zscored=zscored),
+        boot=SimpleNamespace(weights=boot),
+    )
+
+
+def _run_corr_fit_once_enrich_many(
+    data: np.ndarray,
+    input_rh: np.ndarray | None,
+    cfg: EngineConfig,
+    out_dir: Path,
+):
+    """Fit the correlation ranking once, then enrich every configured gene set.
+
+    Mirrors :func:`_run_pls_fit_once_enrich_many` but for the mass-univariate
+    correlation backend: the observed and per-surrogate map↔gene correlations are
+    computed with the engine's own ``CorrAnalysis`` (same spatial null as PLS),
+    the standard correlation bundle is written, and the corrected enrichment
+    (GCEA / re-ranked GSEA / template ORA) is run per gene set on the correlation
+    ranking.  The engine's own correlation GSEA is *not* used — it freezes gene
+    positions at the observed ranking, the same defect corrected for PLS.
+    """
+    enable_annot_surface_nulls()
+    enable_gsea_compat()
+    try:
+        from imaging_transcriptomics.corr import CorrAnalysis
+        from imaging_transcriptomics.models import CorrelationResult
+        from imaging_transcriptomics.nulls import permute_scan_values
+        from imaging_transcriptomics.scan import regional_values_frame
+        from imaging_transcriptomics.serialization import write_result_bundle
+        from imaging_transcriptomics.workflows.shared import (
+            corr_gene_table,
+            prepare_analysis_inputs,
+            result_metadata,
+        )
+    except ImportError as exc:  # pragma: no cover - engine layout drift
+        raise MsnpipEngineError(
+            "msnpip's correlation path depends on the pinned "
+            "imaging-transcriptomics internal API, which appears to have changed "
+            f"({exc}). Re-pin the engine to commit e6a2c237 or update "
+            "engine._run_corr_fit_once_enrich_many to the new layout.",
+            cause=exc,
+        ) from exc
+
+    primary = _primary_enrichment(cfg.enrichment_methods)
+    backends = [m for m in ("ensemble", "gsea", "ora") if m in cfg.enrichment_methods]
+    gene_sets = list(cfg.gene_sets) or ["lake"]
+
+    config = imt.build_run_config(
+        "corr",
+        atlas=cfg.atlas,
+        hemisphere=cfg.hemisphere,
+        regions=cfg.regions,
+        source_space=None,
+        n_permutations=cfg.n_permutations,
+        null_method=cfg.null_method,
+        output_dir=out_dir,
+        enrichment_method=primary,
+        run_gsea=False,
+        gene_set=gene_sets[0],
+        geneset_organism=cfg.geneset_organism,
+        ora_p_threshold=cfg.ora_p_threshold,
+        seed=cfg.seed,
+        n_jobs=cfg.n_jobs,
+    )
+
+    extracted, gene_exp, gene_labels, imaging = prepare_analysis_inputs(
+        data, config, input_rh=input_rh
+    )
+
+    # Spatial null with the same fallback policy as the PLS path.
+    def _permute(null_method):
+        return permute_scan_values(
+            extracted,
+            n_permutations=config.n_permutations,
+            null_method=null_method,
+            seed=config.seed,
+        )
+
+    try:
+        permuted, resolved_null = _permute(config.null_method)
+    except MsnpipError:
+        raise
+    except Exception as exc:
+        if cfg.allow_null_fallback and _is_null_error(exc) and cfg.null_method != "auto":
+            logger.warning(
+                "[corr] Surface null %r failed (%s); retrying with null_method='auto'.",
+                cfg.null_method,
+                exc,
+            )
+            permuted, resolved_null = _permute("auto")
+        else:
+            raise MsnpipEngineError(
+                f"Engine 'corr' null generation failed: {exc}", cause=exc
+            ) from exc
+
+    analysis = CorrAnalysis(
+        n_iterations=config.n_permutations,
+        n_genes=gene_labels.shape[0],
+        store_boot_corr=True,  # needed for the re-ranked GSEA + GCEA nulls
+        n_jobs=config.n_jobs,
+    )
+    analysis.bootstrap_correlation(imaging, permuted, gene_exp, gene_labels)
+
+    result = CorrelationResult(
+        metadata=result_metadata(extracted, config, null_method=resolved_null),
+        regional_values=regional_values_frame(extracted),
+        gene_table=corr_gene_table(analysis),
+        gsea_table=None,
+        ensemble_table=None,
+        ora_tables=None,
+        output_dir=out_dir,
+    )
+    # Write the correlation bundle once (corr_genes.tsv, regional values, plots).
+    write_result_bundle(result, out_dir)
+
+    # Enrich every gene set on the correlation ranking (cheap; no re-permutation).
+    corr_genes = analysis.gene_results.results
+    adapter = _corr_enrichment_adapter(corr_genes)
+    enr_root = out_dir / "enrichment"
+    for gene_set in gene_sets:
+        label = _geneset_label(gene_set)
+        resolved = _resolve_geneset(gene_set)  # bundled .gmt path when available
+        sub = enr_root / label
+        sub.mkdir(parents=True, exist_ok=True)
+        for backend in backends:
+            try:
+                if backend == "ensemble":
+                    # Engine GCEA is order-independent (category means), so it is
+                    # correct as-is; only the output filename is normalised to the
+                    # ``pls1`` scheme the curation/report already consume.
+                    ens = analysis.ensemble(
+                        gene_set=resolved,
+                        outdir=None,
+                        n_perm=cfg.n_permutations,
+                        geneset_organism=cfg.geneset_organism,
+                    )
+                    ens.to_csv(sub / "ensemble_pls1_results.tsv", index=False, sep="\t")
+                elif backend == "gsea":
+                    run_corrected_gsea(
+                        adapter,
+                        gene_set=resolved,
+                        outdir=sub,
+                        geneset_organism=cfg.geneset_organism,
+                        n_jobs=cfg.n_jobs,
+                    )
+                elif backend == "ora":
+                    run_template_ora(
+                        adapter,
                         gene_set=resolved,
                         outdir=sub,
                         geneset_organism=cfg.geneset_organism,
@@ -456,21 +645,25 @@ def run_transcriptomics(
             cfg.null_method,
             cfg.n_permutations,
         )
-        if method != "pls":
+        if method == "pls":
+            fit = _run_pls_fit_once_enrich_many
+        elif method == "corr":
+            fit = _run_corr_fit_once_enrich_many
+        else:
             raise MsnpipEngineError(
-                f"Unsupported engine method {method!r}; only 'pls' is supported."
+                f"Unsupported engine method {method!r}; expected 'pls' or 'corr'."
             )
         # Fit once, enrich every gene set (avoids re-running the spatial null
         # per gene set; the engine couples them in a single-gene-set call).
-        # The spatial-null fallback policy is handled inside
-        # _run_pls_fit_once_enrich_many (see the _permute retry there).
+        # The spatial-null fallback policy is handled inside the fit-once
+        # helpers (see the _permute retry there).
         try:
-            result = _run_pls_fit_once_enrich_many(data, input_rh, cfg, out_dir)
+            result = fit(data, input_rh, cfg, out_dir)
         except MsnpipError:
             raise
         except Exception as exc:
             raise MsnpipEngineError(
-                f"Engine 'pls' call failed for contrast {contrast_tag!r}: {exc}",
+                f"Engine {method!r} call failed for contrast {contrast_tag!r}: {exc}",
                 cause=exc,
             ) from exc
 

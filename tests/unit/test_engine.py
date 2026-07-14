@@ -1,8 +1,9 @@
 """Unit tests for msnpip.engine — T3.1.
 
-The PLS path fits once then enriches each gene set via the engine's workflow
-primitives; those primitives are monkeypatched here.  The corr path still calls
-``imt.run_corr`` and is faked.  The real engine is exercised once in
+Both the PLS and corr paths fit once then enrich each gene set via the engine's
+workflow primitives; those primitives are monkeypatched here.  The corr path
+drives the engine's ``CorrAnalysis`` (not the removed ``imt.run_corr``) and runs
+the *same* corrected enrichment as PLS.  The real engine is exercised once in
 test_engine_integration.py (slow).
 """
 
@@ -11,6 +12,7 @@ from __future__ import annotations
 import types
 from pathlib import Path
 
+import imaging_transcriptomics.corr as _corr_mod
 import imaging_transcriptomics.nulls as _nulls
 import imaging_transcriptomics.pls as _pls_mod
 import imaging_transcriptomics.scan as _scan_mod
@@ -49,7 +51,7 @@ def _labels_df(n_left: int = 34, n_right: int = 0) -> pd.DataFrame:
 
 @pytest.fixture
 def patched(monkeypatch):
-    """Patch the PLS workflow primitives + imt.run_corr; record what happened."""
+    """Patch the PLS + corr workflow primitives; record what happened."""
     rec: dict = {
         "fit_count": 0,
         "permute_null": [],
@@ -58,6 +60,7 @@ def patched(monkeypatch):
         "enrich": [],
         "bundle_dirs": [],
         "corr": [],
+        "corr_fit_count": 0,
         "prepare_data": None,
         "prepare_input_rh": "unset",
     }
@@ -92,11 +95,30 @@ def patched(monkeypatch):
         def boot_pls(self, *a, **k):
             pass
 
+    class FakeCorrGenes:
+        # Minimal stand-in for the engine's CorrGenes (what the adapter reads).
+        genes = np.array([["g0"], ["g1"], ["g2"]], dtype=object)
+        corr = np.array([[0.5, -0.2, 0.1]])
+        boot_corr = np.zeros((3, 4), dtype=float)
+
+    class FakeCorrAnalysis:
+        def __init__(self, n_iterations=10, n_genes=None, store_boot_corr=True, n_jobs=1):
+            rec["corr_fit_count"] += 1
+            self.gene_results = types.SimpleNamespace(results=FakeCorrGenes())
+
+        def bootstrap_correlation(self, *a, **k):
+            pass
+
+        def ensemble(self, gene_set, outdir=None, n_perm=1000, geneset_organism="Human", **k):
+            rec["enrich"].append({"backend": "ensemble", "gene_set": gene_set, "outdir": str(outdir)})
+            return pd.DataFrame({"Term": ["T1"], "z_score": [1.0], "p_val": [0.1], "fdr": [0.2]})
+
     def fake_prepare(data, config, input_rh=None):
         rec["prepare_data"] = np.asarray(data)
         rec["prepare_input_rh"] = None if input_rh is None else np.asarray(input_rh)
         extracted = types.SimpleNamespace(values=np.asarray(data))
-        return extracted, object(), object(), np.asarray(data)
+        gene_labels = np.array(["g0", "g1", "g2"], dtype=object)  # needs a .shape for corr
+        return extracted, object(), gene_labels, np.asarray(data)
 
     def fake_permute(extracted, n_permutations, null_method, seed):
         rec["permute_null"].append(null_method)
@@ -106,10 +128,6 @@ def patched(monkeypatch):
 
     def fake_build_run_config(method, **kw):
         return types.SimpleNamespace(method=method, **kw)
-
-    def fake_run_corr(data, **kwargs):
-        rec["corr"].append({"data": np.asarray(data), **kwargs})
-        return _fake_result(kwargs.get("null_method", "vasa"))
 
     # gsea + ora now run through msnpip functions (not res_obj methods).
     def fake_template_ora(res_obj, gene_set, outdir, geneset_organism="Human", z_cut=3.0, **k):
@@ -140,7 +158,13 @@ def patched(monkeypatch):
         raising=True,
     )
     monkeypatch.setattr(engine.imt, "build_run_config", fake_build_run_config, raising=False)
-    monkeypatch.setattr(engine.imt, "run_corr", fake_run_corr, raising=False)
+    monkeypatch.setattr(_corr_mod, "CorrAnalysis", FakeCorrAnalysis, raising=True)
+    monkeypatch.setattr(
+        _shared,
+        "corr_gene_table",
+        lambda analysis: pd.DataFrame({"gene": ["g0"], "score": [0.5], "p": [0.1], "fdr": [0.2]}),
+        raising=True,
+    )
     monkeypatch.setattr(engine, "run_template_ora", fake_template_ora, raising=True)
     monkeypatch.setattr(engine, "run_corrected_gsea", fake_corrected_gsea, raising=True)
     return rec
@@ -194,10 +218,25 @@ class TestRunTranscriptomics:
         assert set(out) == {"pls"}
         assert patched["fit_count"] == 1
 
+    def test_corr_only_runs(self, patched, tmp_path):
+        cfg = EngineConfig(methods=("corr",), n_permutations=10, enrichment_methods=("ensemble",))
+        out = run_transcriptomics(np.arange(34.0), _labels_df(34), cfg, tmp_path, "FTD_vs_HC")
+        assert set(out) == {"corr"}
+        assert patched["corr_fit_count"] == 1
+        # PLS path was not touched, and the corr bundle + enrichment landed under corr/.
+        assert patched["fit_count"] == 0
+        assert (tmp_path / "FTD_vs_HC" / "corr").is_dir()
+        assert {e["backend"] for e in patched["enrich"]} == {"ensemble"}
+
+    def test_corr_and_pls_both_run(self, patched, tmp_path):
+        cfg = EngineConfig(methods=("pls", "corr"), n_permutations=10, enrichment_methods=("ensemble",))
+        out = run_transcriptomics(np.arange(34.0), _labels_df(34), cfg, tmp_path, "tag")
+        assert set(out) == {"pls", "corr"}
+        assert patched["fit_count"] == 1 and patched["corr_fit_count"] == 1
+
     def test_unsupported_method_raises(self, patched, tmp_path):
-        # The engine correlation backend was removed; PLS is the only method.
-        cfg = EngineConfig(methods=("corr",), n_permutations=10)
-        with pytest.raises(MsnpipEngineError, match="only 'pls' is supported"):
+        cfg = EngineConfig(methods=("gedar",), n_permutations=10)  # type: ignore[arg-type]
+        with pytest.raises(MsnpipEngineError, match="expected 'pls' or 'corr'"):
             run_transcriptomics(np.arange(34.0), _labels_df(34), cfg, tmp_path, "tag")
 
     def test_pls_fits_once_enriches_each_geneset(self, patched, tmp_path):

@@ -19,8 +19,14 @@ This module fixes exactly that one defect while staying wired to the engine:
 
 Observed and null enrichment scores are computed with the *same* function, so
 they are directly comparable (the engine mixed a GSEApy-computed observed ES with
-a NumPy-computed null ES).  Significance uses a magnitude two-sided empirical
-p-value with the Davison–Hinkley ``+1/+1`` correction.
+a NumPy-computed null ES).  Significance uses the engine's own sign-aware nominal
+empirical p-value (:func:`imaging_transcriptomics.gsea_utils.nominal_pvalues_from_nulls`,
+``(count+1)/(n+1)`` with a one-sided tail chosen by the observed ES sign), so the
+p-value is byte-for-byte identical to imaging-transcriptomics v2.  This is
+one-sided per sign and therefore ~2x anti-conservative relative to a magnitude
+two-sided p-value — the *only* correction this module keeps over the engine is the
+per-surrogate re-ranking of the null (the engine froze gene positions at the
+observed ranking, FPR ~0.7); the p-value itself matches the engine.
 
 Implementation choices where the hand-off spec was silent (flagged for review):
 * FDR is Benjamini–Hochberg across the categories tested within the component
@@ -44,6 +50,7 @@ from imaging_transcriptomics.genesets import as_geneset_mapping, resolve_geneset
 from imaging_transcriptomics.gsea_utils import (
     PreparedPrerankGeneSets,
     enrichment_scores_many,
+    nominal_pvalues_from_nulls,
     normalize_enrichment_scores,
     prepare_prerank_genesets,
 )
@@ -78,9 +85,32 @@ def prepare_over_universe(
     return prepare_prerank_genesets(genes, geneset_resource, term_order=keep_terms)
 
 
+def _surrogate_enrichment_scores(
+    column: np.ndarray,
+    order: np.ndarray,
+    terms,
+    member_indices,
+) -> np.ndarray:
+    """Enrichment scores for a single surrogate's ranking (one null column).
+
+    ``order`` is the surrogate's descending argsort of ``column`` (precomputed in
+    bulk by the caller); ``member_indices`` are hit positions in the *observed*
+    gene order.  Returns a ``(n_terms,)`` vector of enrichment scores.
+    """
+
+    n_genes = column.shape[0]
+    rank = np.empty(n_genes, dtype=np.int64)
+    rank[order] = np.arange(n_genes)
+    positions = tuple(np.sort(rank[idx]).astype(np.int32) for idx in member_indices)
+    prepared_j = PreparedPrerankGeneSets(terms=terms, hit_positions=positions)
+    return enrichment_scores_many(column[order][:, None], prepared_j)[:, 0]
+
+
 def enrichment_scores_reranked(
     boot_scores: np.ndarray,
     prepared: PreparedPrerankGeneSets,
+    *,
+    n_jobs: int = 1,
 ) -> np.ndarray:
     """Enrichment scores for many surrogate rankings, re-ranked per surrogate.
 
@@ -90,6 +120,10 @@ def enrichment_scores_reranked(
     into the surrogate's ranking, and the engine's :func:`enrichment_scores_many`
     is applied — so the statistic is identical to the observed one, only the gene
     order differs.  Returns ``(n_terms, n_iter)``.
+
+    The per-surrogate re-ranking is the statistical correction and is preserved
+    exactly.  ``n_jobs`` only parallelises the (independent) surrogate columns
+    across processes; the numbers are identical to the serial computation.
     """
 
     scores = np.asarray(boot_scores, dtype=float)
@@ -97,27 +131,28 @@ def enrichment_scores_reranked(
         raise ValueError("boot_scores must be a 2D (n_genes, n_iter) array.")
     n_genes, n_iter = scores.shape
     member_indices = prepared.hit_positions
-    out = np.zeros((len(prepared.terms), n_iter), dtype=float)
+    terms = prepared.terms
 
-    for j in range(n_iter):
-        column = scores[:, j]
-        order = np.argsort(column, kind="mergesort")[::-1]  # ranked high→low
-        rank = np.empty(n_genes, dtype=np.int64)
-        rank[order] = np.arange(n_genes)
-        positions = tuple(np.sort(rank[idx]).astype(np.int32) for idx in member_indices)
-        prepared_j = PreparedPrerankGeneSets(terms=prepared.terms, hit_positions=positions)
-        out[:, j] = enrichment_scores_many(column[order][:, None], prepared_j)[:, 0]
-    return out
+    # Rank inversion vectorised across all surrogates at once (one argsort call
+    # instead of n_iter).  ``order[:, j]`` is surrogate j's descending ranking.
+    orders = np.argsort(scores, axis=0, kind="mergesort")[::-1, :]
 
+    workers = min(max(1, int(n_jobs)), n_iter)
+    if workers == 1:
+        columns = [
+            _surrogate_enrichment_scores(scores[:, j], orders[:, j], terms, member_indices)
+            for j in range(n_iter)
+        ]
+    else:
+        from joblib import Parallel, delayed
 
-def magnitude_two_sided_pvalues(observed_es: np.ndarray, null_es: np.ndarray) -> np.ndarray:
-    """Two-sided magnitude empirical p with Davison–Hinkley ``(+1)/(+1)``."""
-
-    observed = np.abs(np.asarray(observed_es, dtype=float).reshape(-1, 1))
-    nulls = np.abs(np.asarray(null_es, dtype=float))
-    n_iter = nulls.shape[1]
-    exceed = np.sum(nulls >= observed, axis=1)
-    return (exceed + 1.0) / (n_iter + 1.0)
+        columns = Parallel(n_jobs=workers)(
+            delayed(_surrogate_enrichment_scores)(
+                scores[:, j], orders[:, j], terms, member_indices
+            )
+            for j in range(n_iter)
+        )
+    return np.column_stack(columns)
 
 
 def main_style_gsea_table(
@@ -127,6 +162,7 @@ def main_style_gsea_table(
     geneset_resource,
     *,
     min_overlap: int = 1,
+    n_jobs: int = 1,
 ) -> pd.DataFrame:
     """Compute the corrected GSEA table for one PLS component.
 
@@ -140,10 +176,13 @@ def main_style_gsea_table(
     observed = np.asarray(observed_scores, dtype=float).reshape(-1)
 
     observed_es = enrichment_scores_many(observed[:, None], prepared)[:, 0]
-    null_es = enrichment_scores_reranked(boot_scores, prepared)
+    null_es = enrichment_scores_reranked(boot_scores, prepared, n_jobs=n_jobs)
 
     nes = normalize_enrichment_scores(observed_es, null_es)
-    p_val = magnitude_two_sided_pvalues(observed_es, null_es)
+    # Sign-aware nominal p-value identical to imaging-transcriptomics v2
+    # (one-sided per sign, ~2x anti-conservative); the correction is the
+    # re-ranked null above, not the p-value.
+    p_val = nominal_pvalues_from_nulls(observed_es, null_es)
     fdr = bh_fdr(p_val)
 
     matched_size = [int(idx.size) for idx in prepared.hit_positions]
@@ -168,6 +207,7 @@ def run_gsea(
     geneset_organism: str = "Human",
     n_iter: int | None = None,
     min_overlap: int = 1,
+    n_jobs: int = 1,
 ):
     """Drop-in replacement for ``PLSGenes.gsea`` using the per-surrogate re-rank.
 
@@ -193,7 +233,12 @@ def run_gsea(
             ddof=1,
         )
         out_df = main_style_gsea_table(
-            gene_list, observed_scores, boot_scores, resolved, min_overlap=min_overlap
+            gene_list,
+            observed_scores,
+            boot_scores,
+            resolved,
+            min_overlap=min_overlap,
+            n_jobs=n_jobs,
         )
         outputs.append(out_df)
         if outdir is not None:

@@ -917,7 +917,9 @@ class ReportBuilder:
             )
 
     def _top_genes_page(self, pdf, tag: str, kicker: str) -> None:
-        files = self._glob_tagged(f"{tag}*_pls.csv")
+        # PLS gene tables (per component) and, for the correlation backend, the
+        # single-ranking corr gene table (gene, score, p, fdr, maxT).
+        files = self._glob_tagged(f"{tag}*_pls.csv") + self._glob_tagged(f"{tag}*_corr.csv")
         for path in files:
             try:
                 full = pd.read_csv(path)

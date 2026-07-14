@@ -31,7 +31,7 @@ class EngineConfig:
     fed to the *engine* — the MSN itself is always whole-cortex (both).
     """
 
-    methods: tuple[Literal["pls"], ...] = ("pls",)
+    methods: tuple[Literal["pls", "corr"], ...] = ("pls",)
     atlas: str = "dk"
     hemisphere: Literal["left", "both"] = "left"
     compare_hemispheres: bool = False

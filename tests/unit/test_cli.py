@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 import pytest
 
 import msnpip.pipeline as pipeline_mod
-from msnpip.cli import build_parser, main
+from msnpip.cli import _cfg_from_args, build_parser, main
 from tests.fixtures.synthetic import make_synthetic_cohort
 
 
@@ -59,12 +59,32 @@ class TestArgParsing:
         assert args.method == ["pls"]
         assert args.enrichment == ["ensemble", "gsea"]
 
-    def test_corr_method_is_rejected(self):
-        # The engine correlation backend was removed; only 'pls' is a valid method.
+    def test_corr_method_is_accepted(self):
+        # corr is a supported gene-ranking method again (mass-univariate backend).
+        args = build_parser().parse_args(
+            ["full", "--dataframe", "m.csv", "--output", "o", "--method", "corr"]
+        )
+        assert args.method == ["corr"]
+
+    def test_unknown_method_is_rejected(self):
         with pytest.raises(SystemExit):
             build_parser().parse_args(
-                ["full", "--dataframe", "m.csv", "--output", "o", "--method", "corr"]
+                ["full", "--dataframe", "m.csv", "--output", "o", "--method", "gedar"]
             )
+
+    def test_n_jobs_threads_into_engine_config(self):
+        args = build_parser().parse_args(
+            ["full", "--dataframe", "m.csv", "--output", "o", "--n-jobs", "8"]
+        )
+        assert args.n_jobs == 8
+        cfg = _cfg_from_args(args)
+        assert cfg.engine.n_jobs == 8
+
+    def test_n_jobs_defaults_to_one_when_unset(self):
+        args = build_parser().parse_args(["full", "--dataframe", "m.csv", "--output", "o"])
+        # Unset flag uses SUPPRESS, so the EngineConfig default (1) stands.
+        assert not hasattr(args, "n_jobs")
+        assert _cfg_from_args(args).engine.n_jobs == 1
 
 
 class TestFullRun:

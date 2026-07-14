@@ -130,10 +130,26 @@ def _add_engine_args(ap):
         default=_SUP,
         help="cortical spatial null (default vasa). Use 'auto' to allow fallback to random.",
     )
-    ap.add_argument("--method", choices=("pls",), action="append", dest="method", default=_SUP)
+    ap.add_argument(
+        "--method",
+        choices=("pls", "corr"),
+        action="append",
+        dest="method",
+        default=_SUP,
+        help="gene-ranking method: 'pls' (multivariate, default) or 'corr' "
+        "(mass-univariate map-gene correlation). Repeat to run both.",
+    )
     ap.add_argument("--ncomp", type=int, default=_SUP)
     ap.add_argument("--var", type=float, default=_SUP)
     ap.add_argument("--n-perm", type=int, dest="n_perm", default=_SUP)
+    ap.add_argument(
+        "--n-jobs",
+        type=int,
+        dest="n_jobs",
+        default=_SUP,
+        help="parallel workers for the spatial-null bootstrap and the re-ranked "
+        "GSEA surrogate loop (default 1). Results are identical to n_jobs=1.",
+    )
     ap.add_argument(
         "--enrichment", choices=("ensemble", "gsea", "ora", "none"), action="append", default=_SUP
     )
@@ -208,6 +224,7 @@ def _cfg_from_args(args) -> PipelineConfig:
         ("pool_cases", "pool_cases"),
         ("null_method", "null_method"),
         ("n_perm", "n_permutations"),
+        ("n_jobs", "n_jobs"),
         ("seed", "seed"),
     ):
         if src in a:

@@ -84,9 +84,21 @@ would need a non-spatial null and are not part of the headline inference.)
   (secondary cross-check). Both consume the same spin null (weights refit on each spun map via
   `boot_pls`). GSEA is computed by msnpip (`msnpip.genes.gsea_mainstyle`), **not** the engine:
   genes are re-ranked on every surrogate (the engine froze them at the observed ranking, which is
-  anti-conservative — pure-H0 FPR ≈0.7); significance is a magnitude two-sided empirical `p` with
-  Davison–Hinkley `+1/+1`, and `fdr` is **BH across the categories tested** (same convention as
-  ensemble). Only `pls` gene-ranking is supported; the engine's `corr` backend is not used.
+  grossly anti-conservative — pure-H0 FPR ≈0.7). The **only** difference that remains from the
+  engine's GSEA is this re-ranking — the p-value itself is now the engine's own sign-aware nominal
+  empirical `p` (`gsea_utils.nominal_pvalues_from_nulls`, one-sided per observed-ES sign, `+1/+1`),
+  so the reported `p_val` is byte-for-byte identical to imaging-transcriptomics v2. That p is
+  **one-sided per sign, hence ~2× anti-conservative** relative to a magnitude two-sided p (pure-H0
+  FPR ≈0.10, not 0.05) — a deliberate choice to match the reference package, not a calibration
+  target; interpret `fdr` accordingly. `fdr` is **BH across the categories tested** (same
+  convention as ensemble).
+- **Gene-ranking method (`--method`).** Two methods are supported and feed the *same* corrected
+  enrichment: `pls` (default, multivariate PLS) and `corr` (mass-univariate map↔gene correlation,
+  the classic-toolbox alternative). `corr` runs the same spatial-null permutations, writes
+  `corr_genes.tsv` (per-gene `score, p, fdr, maxT` from the engine's `CorrAnalysis`), and its
+  single ranking is passed through the corrected re-ranked `gsea`, the template `ora`, and GCEA
+  (`ensemble`). The engine's own `corr` GSEA is bypassed — it freezes gene positions like the PLS
+  one. Pre-specify a single method as primary; the other is a declared sensitivity analysis.
 - **Two-tier reporting.** The **rigorous, primary** result is the **component-level** spin-null
   test (a significant PLS1/PLS2 means the transcriptomic axis explains the map beyond spatial
   autocorrelation). Enrichment then *characterises* that axis: **GCEA (`ensemble`) is the primary
