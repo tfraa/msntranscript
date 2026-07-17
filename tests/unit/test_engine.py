@@ -9,6 +9,7 @@ test_engine_integration.py (slow).
 
 from __future__ import annotations
 
+import logging
 import types
 from pathlib import Path
 
@@ -238,6 +239,23 @@ class TestRunTranscriptomics:
         cfg = EngineConfig(methods=("gedar",), n_permutations=10)  # type: ignore[arg-type]
         with pytest.raises(MsnpipEngineError, match="expected 'pls' or 'corr'"):
             run_transcriptomics(np.arange(34.0), _labels_df(34), cfg, tmp_path, "tag")
+
+    def test_skipped_enrichment_backend_is_warned(self, patched, tmp_path, caplog):
+        """A backend left out of --enrichment must be called out, not silently dropped."""
+        cfg = EngineConfig(
+            methods=("pls",), n_permutations=10, enrichment_methods=("ensemble", "ora")
+        )
+        with caplog.at_level(logging.WARNING, logger="msnpip.engine"):
+            run_transcriptomics(np.arange(34.0), _labels_df(34), cfg, tmp_path, "tag")
+        assert "NOT requested" in caplog.text and "gsea" in caplog.text
+
+    def test_full_enrichment_warns_nothing(self, patched, tmp_path, caplog):
+        cfg = EngineConfig(
+            methods=("pls",), n_permutations=10, enrichment_methods=("ensemble", "gsea", "ora")
+        )
+        with caplog.at_level(logging.WARNING, logger="msnpip.engine"):
+            run_transcriptomics(np.arange(34.0), _labels_df(34), cfg, tmp_path, "tag")
+        assert "NOT requested" not in caplog.text
 
     def test_pls_fits_once_enriches_each_geneset(self, patched, tmp_path):
         cfg = EngineConfig(

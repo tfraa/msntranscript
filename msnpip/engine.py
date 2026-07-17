@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Sequence
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -184,6 +185,34 @@ def _check_surface_null(result, cfg: EngineConfig, method: str) -> None:
     )
 
 
+def _log_enrichment_plan(
+    method: str, backends: Sequence[str], gene_sets: Sequence[str]
+) -> None:
+    """Announce which enrichment backends will actually run, and which are skipped.
+
+    ``--enrichment`` is an append flag: passing any value *replaces* the default
+    ``(ensemble, gsea, ora)``, so it is easy to drop a backend without noticing
+    (a run with only ``--enrichment ensemble`` silently produces no GSEA/ORA).
+    Stating the resolved plan up front makes that visible in the log instead of
+    being inferred later from missing files.
+    """
+    skipped = [m for m in ("ensemble", "gsea", "ora") if m not in backends]
+    logger.info(
+        "[%s] enrichment backends: %s | gene sets: %s",
+        method,
+        ", ".join(backends) if backends else "NONE",
+        ", ".join(_geneset_label(g) for g in gene_sets),
+    )
+    if skipped:
+        logger.warning(
+            "[%s] enrichment backend(s) NOT requested, so no output will be written: %s. "
+            "Pass --enrichment for each backend you want (the flag appends, and using it "
+            "at all replaces the default ensemble+gsea+ora).",
+            method,
+            ", ".join(skipped),
+        )
+
+
 def _geneset_label(gene_set: str) -> str:
     """Filename-safe label for a gene set (name or local ``.gmt`` path)."""
     s = str(gene_set)
@@ -268,6 +297,7 @@ def _run_pls_fit_once_enrich_many(
     primary = _primary_enrichment(cfg.enrichment_methods)
     backends = [m for m in ("ensemble", "gsea", "ora") if m in cfg.enrichment_methods]
     gene_sets = list(cfg.gene_sets) or ["lake"]
+    _log_enrichment_plan("pls", backends, gene_sets)
 
     config = imt.build_run_config(
         "pls",
@@ -460,6 +490,7 @@ def _run_corr_fit_once_enrich_many(
     primary = _primary_enrichment(cfg.enrichment_methods)
     backends = [m for m in ("ensemble", "gsea", "ora") if m in cfg.enrichment_methods]
     gene_sets = list(cfg.gene_sets) or ["lake"]
+    _log_enrichment_plan("corr", backends, gene_sets)
 
     config = imt.build_run_config(
         "corr",
