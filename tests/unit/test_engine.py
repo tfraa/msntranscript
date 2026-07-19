@@ -62,6 +62,7 @@ def patched(monkeypatch):
         "bundle_dirs": [],
         "corr": [],
         "corr_fit_count": 0,
+        "ensemble_n_iter": None,
         "prepare_data": None,
         "prepare_input_rh": "unset",
     }
@@ -76,7 +77,8 @@ def patched(monkeypatch):
                 "Term\tz_score\tp_val\tfdr\nT1\t1.0\t0.1\t0.2\n", encoding="utf-8"
             )
 
-        def ensemble(self, gene_set, outdir, geneset_organism="Human", **k):
+        def ensemble(self, gene_set, outdir, n_iter=1000, geneset_organism="Human", **k):
+            rec["ensemble_n_iter"] = n_iter  # engine default is 1000 — must be overridden
             self._write("ensemble", gene_set, outdir)
 
         def gsea(self, gene_set, outdir, geneset_organism="Human", **k):
@@ -239,6 +241,19 @@ class TestRunTranscriptomics:
         cfg = EngineConfig(methods=("gedar",), n_permutations=10)  # type: ignore[arg-type]
         with pytest.raises(MsnpipEngineError, match="expected 'pls' or 'corr'"):
             run_transcriptomics(np.arange(34.0), _labels_df(34), cfg, tmp_path, "tag")
+
+    def test_gcea_uses_all_configured_permutations(self, patched, tmp_path):
+        """GCEA must run on every surrogate, not the engine's 1000-surrogate default.
+
+        The engine's ``ensemble(n_iter=1000)`` default silently caps the empirical
+        p at 1/1001, which alone can make larger gene sets unable to reach BH
+        significance — so the configured count has to be passed through.
+        """
+        cfg = EngineConfig(
+            methods=("pls",), n_permutations=20000, enrichment_methods=("ensemble",)
+        )
+        run_transcriptomics(np.arange(34.0), _labels_df(34), cfg, tmp_path, "tag")
+        assert patched["ensemble_n_iter"] == 20000
 
     def test_skipped_enrichment_backend_is_warned(self, patched, tmp_path, caplog):
         """A backend left out of --enrichment must be called out, not silently dropped."""

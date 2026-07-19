@@ -186,7 +186,7 @@ def _check_surface_null(result, cfg: EngineConfig, method: str) -> None:
 
 
 def _log_enrichment_plan(
-    method: str, backends: Sequence[str], gene_sets: Sequence[str]
+    method: str, backends: Sequence[str], gene_sets: Sequence[str], n_permutations: int | None = None
 ) -> None:
     """Announce which enrichment backends will actually run, and which are skipped.
 
@@ -203,6 +203,18 @@ def _log_enrichment_plan(
         ", ".join(backends) if backends else "NONE",
         ", ".join(_geneset_label(g) for g in gene_sets),
     )
+    if n_permutations is not None:
+        # Both spin-null backends consume the full surrogate set; state it, because
+        # the resolution floor of an empirical p is 1/(n_permutations+1) and a
+        # silently reduced count is invisible in the output tables.
+        logger.info(
+            "[%s] surrogates used by the spin-null enrichment backends: "
+            "ensemble=%d, gsea=%d (empirical p floor 1/%d)",
+            method,
+            n_permutations,
+            n_permutations,
+            n_permutations + 1,
+        )
     if skipped:
         logger.warning(
             "[%s] enrichment backend(s) NOT requested, so no output will be written: %s. "
@@ -297,7 +309,7 @@ def _run_pls_fit_once_enrich_many(
     primary = _primary_enrichment(cfg.enrichment_methods)
     backends = [m for m in ("ensemble", "gsea", "ora") if m in cfg.enrichment_methods]
     gene_sets = list(cfg.gene_sets) or ["lake"]
-    _log_enrichment_plan("pls", backends, gene_sets)
+    _log_enrichment_plan("pls", backends, gene_sets, cfg.n_permutations)
 
     config = imt.build_run_config(
         "pls",
@@ -384,8 +396,15 @@ def _run_pls_fit_once_enrich_many(
         for backend in backends:
             try:
                 if backend == "ensemble":
+                    # n_iter must be passed explicitly: the engine defaults to
+                    # 1000 surrogates regardless of how many were generated, which
+                    # silently caps GCEA's empirical p at 1/1001 and makes larger
+                    # gene sets unable to reach BH significance at all.
                     res_obj.ensemble(
-                        gene_set=resolved, outdir=sub, geneset_organism=cfg.geneset_organism
+                        gene_set=resolved,
+                        outdir=sub,
+                        n_iter=cfg.n_permutations,
+                        geneset_organism=cfg.geneset_organism,
                     )
                 elif backend == "gsea":
                     # Corrected GSEA: per-surrogate re-ranked null (see
@@ -490,7 +509,7 @@ def _run_corr_fit_once_enrich_many(
     primary = _primary_enrichment(cfg.enrichment_methods)
     backends = [m for m in ("ensemble", "gsea", "ora") if m in cfg.enrichment_methods]
     gene_sets = list(cfg.gene_sets) or ["lake"]
-    _log_enrichment_plan("corr", backends, gene_sets)
+    _log_enrichment_plan("corr", backends, gene_sets, cfg.n_permutations)
 
     config = imt.build_run_config(
         "corr",
