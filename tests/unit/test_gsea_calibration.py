@@ -96,6 +96,61 @@ def test_pvalue_matches_engine_nominal():
     np.testing.assert_array_equal(table["p_val"].to_numpy(), expected)
 
 
+def _engine_reference_null(scores: np.ndarray, prepared) -> np.ndarray:
+    """Reference null: the engine's ES function called once per surrogate.
+
+    This is the straightforward (slow) formulation the fast per-term vectorised
+    path must reproduce — it is the definition of the statistic, so it pins the
+    optimisation against silent drift.
+    """
+
+    n_genes, n_iter = scores.shape
+    out = np.zeros((len(prepared.terms), n_iter), dtype=float)
+    for j in range(n_iter):
+        column = scores[:, j]
+        order = np.argsort(column, kind="mergesort")[::-1]
+        rank = np.empty(n_genes, dtype=np.int64)
+        rank[order] = np.arange(n_genes)
+        positions = tuple(np.sort(rank[idx]).astype(np.int32) for idx in prepared.hit_positions)
+        prepared_j = PreparedPrerankGeneSets(terms=prepared.terms, hit_positions=positions)
+        out[:, j] = enrichment_scores_many(column[order][:, None], prepared_j)[:, 0]
+    return out
+
+
+def test_vectorised_null_matches_engine_reference():
+    """The fast per-term path reproduces the engine's per-surrogate statistic.
+
+    Reordering the loops changes the NumPy code path, so ES values may differ in
+    the last bits; that must stay at rounding level and must not move the
+    p-values at all.
+    """
+
+    from msnpip.genes.gsea_mainstyle import enrichment_scores_reranked
+
+    rng = np.random.default_rng(5)
+    n_genes, n_iter = 300, 40
+    genes = [f"g{i}" for i in range(n_genes)]
+    mapping = {
+        "A": tuple(genes[i] for i in rng.choice(n_genes, size=25, replace=False)),
+        "B": tuple(genes[i] for i in rng.choice(n_genes, size=8, replace=False)),
+        "C": (genes[3],),  # single-hit term exercises the nh == 1 branch
+    }
+    prepared = prepare_over_universe(genes, mapping)
+    scores = rng.normal(size=(n_genes, n_iter))
+
+    reference = _engine_reference_null(scores, prepared)
+    fast = enrichment_scores_reranked(scores, prepared, n_jobs=1)
+    np.testing.assert_allclose(fast, reference, rtol=0, atol=1e-12)
+
+    # What actually matters downstream: identical p-values.
+    observed = rng.normal(size=n_genes)
+    observed_es = enrichment_scores_many(observed[:, None], prepared)[:, 0]
+    np.testing.assert_array_equal(
+        nominal_pvalues_from_nulls(observed_es, fast),
+        nominal_pvalues_from_nulls(observed_es, reference),
+    )
+
+
 def test_njobs_does_not_change_results():
     """Parallelising the surrogate loop returns identical numbers (n_jobs only
     splits independent columns)."""

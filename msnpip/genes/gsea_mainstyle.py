@@ -61,6 +61,11 @@ from ..logging_ import get_logger
 
 logger = get_logger("genes")
 
+# Working-set target per surrogate block in :func:`_term_block_scores`; keeps the
+# peak footprint bounded (and predictable under parallelism) regardless of how
+# many permutations were requested.
+_BLOCK_TARGET_BYTES = 256 * 1024 * 1024
+
 
 def prepare_over_universe(
     gene_list, geneset_resource, *, min_overlap: int = 1
@@ -85,25 +90,73 @@ def prepare_over_universe(
     return prepare_prerank_genesets(genes, geneset_resource, term_order=keep_terms)
 
 
-def _surrogate_enrichment_scores(
-    column: np.ndarray,
-    order: np.ndarray,
-    terms,
+def _term_block_scores(
+    scores_block: np.ndarray,
+    n_terms: int,
     member_indices,
 ) -> np.ndarray:
-    """Enrichment scores for a single surrogate's ranking (one null column).
+    """Enrichment scores for a block of surrogates, vectorised *over surrogates*.
 
-    ``order`` is the surrogate's descending argsort of ``column`` (precomputed in
-    bulk by the caller); ``member_indices`` are hit positions in the *observed*
-    gene order.  Returns a ``(n_terms,)`` vector of enrichment scores.
+    This computes exactly the statistic of
+    :func:`imaging_transcriptomics.gsea_utils.enrichment_scores_many` — the
+    weighted (``p=1``) preranked running sum, with the peak taken as the extreme
+    of the running sum evaluated just after each hit and just before each hit —
+    on each surrogate's *own* gene ranking.  The re-ranking (the statistical
+    correction) is preserved exactly; only the loop order changes.
+
+    The engine scores one ranking at a time, so the Python loop runs
+    ``n_terms x n_surrogates`` times (tens of millions for a 5000-term set), and
+    each iteration does NumPy calls on tiny arrays — almost pure call overhead.
+    Here the loop runs once **per term**, with every surrogate handled
+    simultaneously: the term's member genes get their per-surrogate ranks as an
+    ``(n_hits, n_block)`` array, so the running sum is a single vectorised cumsum
+    across the whole block.  Same arithmetic, ~2 orders of magnitude fewer
+    Python-level operations.
     """
 
-    n_genes = column.shape[0]
-    rank = np.empty(n_genes, dtype=np.int64)
-    rank[order] = np.arange(n_genes)
-    positions = tuple(np.sort(rank[idx]).astype(np.int32) for idx in member_indices)
-    prepared_j = PreparedPrerankGeneSets(terms=terms, hit_positions=positions)
-    return enrichment_scores_many(column[order][:, None], prepared_j)[:, 0]
+    n_genes, n_cols = scores_block.shape
+    # Descending ranking per surrogate (stable mergesort, matching the engine).
+    orders = np.argsort(scores_block, axis=0, kind="mergesort")[::-1, :]
+    sorted_abs = np.abs(np.take_along_axis(scores_block, orders, axis=0))
+    # rank[gene, j] = position of that gene in surrogate j's ranking.
+    rank = np.empty((n_genes, n_cols), dtype=np.int64)
+    rank[orders, np.arange(n_cols)] = np.arange(n_genes)[:, None]
+    del orders
+
+    out = np.zeros((n_terms, n_cols), dtype=float)
+    zeros_row = np.zeros((1, n_cols), dtype=float)
+    for term_index, idx in enumerate(member_indices):
+        nh = int(idx.size)
+        if nh == 0 or nh >= n_genes:
+            continue
+        # Hit positions in each surrogate's ranking, ascending per surrogate.
+        positions = np.sort(rank[idx, :], axis=0)
+        pos_f = positions.astype(float)
+        hit_weights = np.take_along_axis(sorted_abs, positions, axis=0)
+
+        norm = hit_weights.sum(axis=0)
+        norm_safe = np.where(norm == 0, 1.0, norm)
+        hit_cumulative = np.cumsum(hit_weights / norm_safe.reshape(1, -1), axis=0)
+
+        miss_scale = 1.0 / float(n_genes - nh)
+        hit_order = np.arange(1, nh + 1, dtype=float).reshape(-1, 1)
+        rs_after_hits = hit_cumulative - (pos_f + 1.0 - hit_order) * miss_scale
+
+        if nh == 1:
+            rs_before_hits = -pos_f * miss_scale
+        else:
+            misses_before = pos_f - np.arange(nh, dtype=float).reshape(-1, 1)
+            rs_before_hits = np.vstack(
+                [
+                    -pos_f[0:1, :] * miss_scale,
+                    hit_cumulative[:-1, :] - misses_before[1:, :] * miss_scale,
+                ]
+            )
+
+        max_pos = np.max(rs_after_hits, axis=0)
+        min_neg = np.min(np.vstack([rs_before_hits, zeros_row]), axis=0)
+        out[term_index, :] = np.where(np.abs(max_pos) >= np.abs(min_neg), max_pos, min_neg)
+    return out
 
 
 def enrichment_scores_reranked(
@@ -122,8 +175,9 @@ def enrichment_scores_reranked(
     order differs.  Returns ``(n_terms, n_iter)``.
 
     The per-surrogate re-ranking is the statistical correction and is preserved
-    exactly.  ``n_jobs`` only parallelises the (independent) surrogate columns
-    across processes; the numbers are identical to the serial computation.
+    exactly.  Surrogates are processed in blocks (vectorised over the block, see
+    :func:`_term_block_scores`) and blocks are independent, so ``n_jobs`` only
+    changes speed: the numbers are identical to the serial computation.
     """
 
     scores = np.asarray(boot_scores, dtype=float)
@@ -131,28 +185,29 @@ def enrichment_scores_reranked(
         raise ValueError("boot_scores must be a 2D (n_genes, n_iter) array.")
     n_genes, n_iter = scores.shape
     member_indices = prepared.hit_positions
-    terms = prepared.terms
+    n_terms = len(prepared.terms)
 
-    # Rank inversion vectorised across all surrogates at once (one argsort call
-    # instead of n_iter).  ``order[:, j]`` is surrogate j's descending ranking.
-    orders = np.argsort(scores, axis=0, kind="mergesort")[::-1, :]
+    # Block size caps the working set: _term_block_scores holds a handful of
+    # (n_genes, block) arrays, so bound them rather than the surrogate count.
+    per_col_bytes = n_genes * 8 * 4
+    block = int(np.clip(_BLOCK_TARGET_BYTES // max(per_col_bytes, 1), 1, n_iter))
+    starts = range(0, n_iter, block)
+    workers = min(max(1, int(n_jobs)), len(starts))
 
-    workers = min(max(1, int(n_jobs)), n_iter)
     if workers == 1:
-        columns = [
-            _surrogate_enrichment_scores(scores[:, j], orders[:, j], terms, member_indices)
-            for j in range(n_iter)
+        blocks = [
+            _term_block_scores(scores[:, s : s + block], n_terms, member_indices)
+            for s in starts
         ]
     else:
         from joblib import Parallel, delayed
 
-        columns = Parallel(n_jobs=workers)(
-            delayed(_surrogate_enrichment_scores)(
-                scores[:, j], orders[:, j], terms, member_indices
-            )
-            for j in range(n_iter)
+        blocks = Parallel(n_jobs=workers)(
+            delayed(_term_block_scores)(scores[:, s : s + block], n_terms, member_indices)
+            for s in starts
         )
-    return np.column_stack(columns)
+    # Blocks are contiguous and ordered, so column order is preserved.
+    return np.concatenate(blocks, axis=1)
 
 
 def main_style_gsea_table(
