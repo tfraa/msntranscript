@@ -99,13 +99,44 @@ would need a non-spatial null and are not part of the headline inference.)
   single ranking is passed through the corrected re-ranked `gsea`, the template `ora`, and GCEA
   (`ensemble`). The engine's own `corr` GSEA is bypassed — it freezes gene positions like the PLS
   one. Pre-specify a single method as primary; the other is a declared sensitivity analysis.
+- **Category-size filter (`--geneset-min-size` / `--geneset-max-size`).** Off by default, so a run
+  stays bit-reproducible against earlier ones. When set, terms whose size *after* intersecting with
+  the ranked gene universe falls outside the window are dropped **once, upstream of every backend**,
+  by materialising a filtered `.gmt` next to the enrichment output — so `ensemble`, `gsea` and `ora`
+  test an identical term set, each backend's BH sees the same `m`, and what was tested is auditable.
+  `10–2000` is the conventional window; GSEA's own `15–500` is **wrong for this gene-set mix**
+  (`LAKE_Pooled` has a median matched size of 783 and loses 6 of 7 terms). Pre-specify the bounds —
+  tuning them on the results is p-hacking. On DK/left this filter *reduces* hits (small categories
+  have noisier scores and land in the empirical tail more often, so it strips BH mass faster than
+  it strips `m`), which is worth stating in the methods rather than hiding.
+- **Reproducing the engine's (invalid) GSEA (`--gsea-backend`).** `corrected` (default) runs the
+  re-ranked backend above; `engine` runs the pinned toolbox's own `PLSGenes.gsea`/`CorrAnalysis.gsea`;
+  `both` emits each. The engine's output is written as backend **`gseafrozen`**, never `gsea`, so it
+  cannot be pooled with or mistaken for the corrected table. It exists to reproduce or exhibit
+  published v2 behaviour and is **not reportable as inference**. Two asymmetries make it more than a
+  one-variable contrast: the engine routes the observed ranking through `gseapy.prerank`, which
+  applies its own `min_size=15`/`max_size=1500` window, and its `fdr` is a GSEA-style NES-ratio
+  q-value rather than BH. It also defaults to the engine's hardcoded **1000** surrogates whatever
+  `--n-perm` says (`--gsea-engine-n-iter` overrides); at 1000 the empirical `p` granularity is
+  `0.001`, which is coarser than the region where the BH crossing usually falls.
 - **Two-tier reporting.** The **rigorous, primary** result is the **component-level** spin-null
   test (a significant PLS1/PLS2 means the transcriptomic axis explains the map beyond spatial
   autocorrelation). Enrichment then *characterises* that axis: **GCEA (`ensemble`) is the primary
-  spin-null enrichment**, `gsea` a spin-null cross-check, and **`ora` is a template
-  over-representation test** (Fisher on the weight-ranked PLS1± tails, `ora_z_cut`) reported as
-  **candidate mechanisms only** — the random-gene null used by the source literature (Martins
-  2022, Giacomel 2026), *not* spatial-null-corrected, never primary inference.
+  spin-null enrichment**, `gsea` a spin-null cross-check, and **ORA is a template
+  over-representation test** (Fisher against the gene background) reported as **candidate
+  mechanisms only** — the random-gene null used by the source literature (Martins 2022,
+  Giacomel 2026), *not* spatial-null-corrected, never primary inference.
+- **The three ORA tails.** Requesting `--enrichment ora` runs all three tail definitions and
+  emits them as separate backends, so a table can never be read without knowing how its gene
+  list was selected (every row also carries `ora_tail` and `tail_size`). The cuts are fixed
+  constants in `msnpip/genes/ora_mainstyle.py` and deliberately **not** configurable — a tail
+  threshold chosen after seeing the results is not a pre-specified threshold.
+
+  | backend | tail | note |
+  |---|---|---|
+  | `oraz` | `\|z\| >= 3` on the standardized observed statistic | the classic Z>3 cut of the source literature; null-independent, so it does not collapse under the spin null. Identically constructed on both paths (`zscore` across genes of the PLS weights / of the Spearman correlations). |
+  | `orap` | nominal spin `p <= 0.05`, uncorrected | what the pinned engine's own ORA does. **Not comparable across backends**: the same threshold selects tens of genes on the PLS path and thousands on the corr path, because the PLS gene null is sign-folded. |
+  | `oratopn` | top/bottom 500 by observed statistic | fixed tail *size* rather than threshold, so the two backends are directly comparable and the Fisher background ratio is held constant. |
 
 ## Reporting caveats `[PUB]`
 - Empirical p-resolution is `1/(B+1)`; with ~15,677 genes (DK) even 10⁴ permutations may not

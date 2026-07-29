@@ -29,11 +29,19 @@ class EngineConfig:
     ``require_surface_null`` makes the wrapper hard-fail rather than let a silent
     grouped-shuffle fallback reach a figure.  ``hemisphere`` here selects what is
     fed to the *engine* — the MSN itself is always whole-cortex (both).
+
+    ``hemisphere="right"`` is a **homotopic relabel**, not a right-hemisphere
+    transcriptome: AHBA samples only 2 of 6 donors on the right, so the engine's
+    DK expression is left-hemisphere.  The right arm therefore keeps that
+    left-hemisphere expression and swaps only the *phenotype*, filling each
+    ``lh_<region>`` slot with the value from ``rh_<region>``.  Any left-vs-right
+    difference in the result is then attributable to asymmetry of the phenotype
+    alone, because the expression matrix is identical in both arms.
     """
 
     methods: tuple[Literal["pls", "corr"], ...] = ("pls",)
     atlas: str = "dk"
-    hemisphere: Literal["left", "both"] = "left"
+    hemisphere: Literal["left", "right", "both"] = "left"
     compare_hemispheres: bool = False
     regions: Literal["cort", "cort+sub"] = "cort"
     # Run a supplementary pooled contrast (union of the specified cases per
@@ -64,11 +72,32 @@ class EngineConfig:
         "KEGG_2021_H",
         "DisGeNET",
     )
+    # Which GSEA implementation runs when "gsea" is in enrichment_methods.
+    #   "corrected" (default) — msnpip.genes.gsea_mainstyle: each surrogate is
+    #       re-ranked by its own weights before scoring (what v1 did per surrogate
+    #       via gseapy, at v2 speed).
+    #   "engine" — the pinned engine's PLSGenes.gsea / CorrAnalysis.gsea, which
+    #       scores every surrogate at the OBSERVED gene positions. That is not a
+    #       valid null for a rank-position statistic (pure-H0 FPR ~0.7) and its
+    #       output is written as backend "gseafrozen", never "gsea".
+    #   "both" — run each and emit both, for a methods comparison.
+    # Only use "engine" to reproduce or exhibit published v2 behaviour.
+    gsea_backend: Literal["corrected", "engine", "both"] = "corrected"
+    # Surrogates handed to the engine's own GSEA. None = the engine's hardcoded
+    # 1000, regardless of n_permutations (its authentic default).
+    gsea_engine_n_iter: int | None = None
     geneset_organism: str = "Human"
+    # Category-size window, counted AFTER intersecting each term with the ranked
+    # gene universe, applied uniformly to ensemble/gsea/ora before their BH step
+    # (see msnpip.genes.sizefilter). Off by default so existing runs stay
+    # reproducible; 10-2000 (or GSEA's own 15-500) is the conventional choice and
+    # must be pre-specified, not tuned on the results.
+    geneset_min_size: int = 1
+    geneset_max_size: int | None = None
     ora_p_threshold: float | None = None
-    # Weight-ranking cut (|standardized loading|) defining the PLS1± tails for the
-    # template ORA. 3.0 = the classic Z>3 cut used by the source literature.
-    ora_z_cut: float = 3.0
+    # NOTE: the template ORA's tail rules (|z|>=3, spin p<=0.05, top/bottom 500)
+    # are fixed constants in msnpip.genes.ora_mainstyle, deliberately NOT config:
+    # a tail cut chosen after seeing the results is not a pre-specified cut.
     seed: int = 1234
     n_jobs: int = 1
 

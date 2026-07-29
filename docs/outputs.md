@@ -45,7 +45,7 @@ out/
 | `<tag>_region_stats.csv` | region | `region`, `beta`, `t`, `cohen_d`, `p`, `fdr` — the per-region OLS group contrast |
 | `<tag>_pls.csv` | gene | `component`, `gene`, PLS `zscore`/`weight`, `p`, `fdr` — gene loadings on the contrast map |
 | `<tag>_pls_summary.csv` | PLS component | explained variance, cumulative variance, and the spatial-null p-value per component |
-| `<tag>_enrichment.csv` | gene-set term | `method` (`pls`), `enrichment` (ensemble/gsea/ora backend), `geneset`, `Term`, effect (`nes`/`es` for gsea or `z_score` for ensemble), `p_val`, `fdr` (BH per backend) |
+| `<tag>_enrichment.csv` | gene-set term | `method` (`pls`/`corr`), `enrichment` (backend: `ensemble`, `gsea`, `gseafrozen`, `oraz`, `orap`, `oratopn`), `geneset`, `Term`, effect (`nes`/`es` for gsea, `z_score` for ensemble, `odds_ratio` for the ORA backends), `p_val`, `fdr` (BH per backend). ORA rows additionally carry `ora_tail` and `tail_size` — the selection rule and how many genes it picked. |
 
 Node strength is **dimensionless** (a sum of similarity ratios in (0, 1]), so the
 strength and difference maps carry no physical unit.

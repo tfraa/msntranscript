@@ -19,6 +19,14 @@ logger = logging.getLogger("msnpip.atlas_align")
 # Maps msnpip hemisphere prefix → engine hemisphere code
 _HEMI_CODE: dict[str, str] = {"lh": "L", "rh": "R"}
 
+# ``hemisphere="right"`` is a homotopic relabel, not a right-hemisphere atlas
+# request: the engine's DK expression is left-hemisphere (AHBA samples only 2 of
+# 6 donors on the right), so the right arm keeps the LEFT label order — and with
+# it the left expression matrix — and takes its *values* from the right
+# hemisphere of the contrast map.  See EngineConfig.hemisphere.
+_RELABEL_HEMI = "right"
+_RELABEL_SOURCE_CODE = "R"
+
 
 # ---------------------------------------------------------------------------
 # T1.6 — engine_region_order
@@ -33,7 +41,8 @@ def engine_region_order(atlas: str, hemisphere: str, regions: str) -> pd.DataFra
     atlas
         Atlas identifier (e.g. ``"dk"``).
     hemisphere
-        ``"left"`` or ``"both"``.
+        ``"left"`` or ``"both"``.  The ``"right"`` arm never reaches here: it is
+        resolved to ``"left"`` by :func:`align_strength_to_atlas` (see there).
     regions
         ``"cort"`` / ``"default"`` or ``"cort+sub"`` / ``"all"``.
 
@@ -73,6 +82,11 @@ def align_strength_to_atlas(
         ``lh`` / ``rh`` is mapped to the engine codes ``L`` / ``R``.
     atlas, hemisphere, regions
         Engine atlas parameters forwarded to :func:`engine_region_order`.
+        ``hemisphere="right"`` requests the LEFT engine label order but fills it
+        from the ``rh_*`` values — a homotopic relabel, so the engine's
+        left-hemisphere expression is paired with the right-hemisphere
+        phenotype.  The returned *labels_df* is therefore left-labelled even for
+        the right arm; that is intentional and is what the engine must see.
 
     Returns
     -------
@@ -108,15 +122,18 @@ def align_strength_to_atlas(
         hemi_code = _HEMI_CODE[parts[0]]
         lookup[(hemi_code, parts[1])] = val
 
-    labels_df = engine_region_order(atlas, hemisphere, regions)
+    # The right arm borrows the LEFT label order (so the engine pairs the map
+    # with its left-hemisphere expression) and reads values from the right.
+    relabel = hemisphere == _RELABEL_HEMI
+    labels_df = engine_region_order(atlas, "left" if relabel else hemisphere, regions)
 
     missing: list[str] = []
     aligned: list[float] = []
 
     for _, row in labels_df.iterrows():
-        key = (row["hemisphere"], row["label"])
+        key = (_RELABEL_SOURCE_CODE if relabel else row["hemisphere"], row["label"])
         if key not in lookup:
-            missing.append(f"{row['hemisphere']}:{row['label']}")
+            missing.append(f"{key[0]}:{key[1]}")
         else:
             aligned.append(lookup[key])
 

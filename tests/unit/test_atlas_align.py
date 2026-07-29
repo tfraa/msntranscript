@@ -148,3 +148,70 @@ class TestToRegionTable:
         )
         table = to_region_table(aligned, labels_df, "value")
         assert np.allclose(table["value"].values, aligned)
+
+
+# ---------------------------------------------------------------------------
+# hemisphere="right" — homotopic relabel (left expression, right phenotype)
+# ---------------------------------------------------------------------------
+
+
+class TestRightHemisphereRelabel:
+    """``hemisphere="right"`` keeps the LEFT label order (so the engine pairs the
+    map with its left-hemisphere AHBA expression) and fills it from ``rh_*``."""
+
+    @staticmethod
+    def _lateralised() -> tuple[np.ndarray, list[str]]:
+        """lh_* values are 0.0; each rh_* value is a distinct positive number."""
+        labels = [f"lh_{r}" for r in DK_REGIONS] + [f"rh_{r}" for r in DK_REGIONS]
+        values = np.concatenate(
+            [np.zeros(len(DK_REGIONS)), np.arange(1, len(DK_REGIONS) + 1, dtype=float)]
+        )
+        return values, labels
+
+    def test_returns_left_labels(self):
+        values, labels = self._lateralised()
+        aligned, labels_df = align_strength_to_atlas(
+            values, labels, atlas="dk", hemisphere="right", regions="cort"
+        )
+        assert len(aligned) == 34
+        # The engine must see a left-hemisphere run: that is what pairs the map
+        # with the left expression matrix.
+        assert set(labels_df["hemisphere"].unique()) == {"L"}
+
+    def test_takes_values_from_the_right_hemisphere(self):
+        values, labels = self._lateralised()
+        aligned, _ = align_strength_to_atlas(
+            values, labels, atlas="dk", hemisphere="right", regions="cort"
+        )
+        # Every lh_* value was 0.0; picking any of them would show up here.
+        assert (aligned > 0).all()
+        assert set(aligned.tolist()) == set(range(1, len(DK_REGIONS) + 1))
+
+    def test_differs_from_the_left_arm_on_a_lateralised_map(self):
+        values, labels = self._lateralised()
+        left, left_labels = align_strength_to_atlas(
+            values, labels, atlas="dk", hemisphere="left", regions="cort"
+        )
+        right, right_labels = align_strength_to_atlas(
+            values, labels, atlas="dk", hemisphere="right", regions="cort"
+        )
+        assert (left == 0).all()
+        assert not np.array_equal(left, right)
+        # Same region order in both arms, so the two results are comparable
+        # region-by-region — the only thing that changed is the phenotype.
+        assert left_labels["label"].tolist() == right_labels["label"].tolist()
+
+    def test_region_order_matches_the_left_arm_homotopically(self):
+        values, labels = self._lateralised()
+        aligned, labels_df = align_strength_to_atlas(
+            values, labels, atlas="dk", hemisphere="right", regions="cort"
+        )
+        # Slot i holds rh_<label i>, i.e. the homotopic partner of lh_<label i>.
+        for i, label in enumerate(labels_df["label"].tolist()):
+            assert aligned[i] == float(DK_REGIONS.index(label) + 1)
+
+    def test_missing_right_region_raises_with_r_prefix(self):
+        values, labels = self._lateralised()
+        labels[len(DK_REGIONS)] = "rh_TYPO_REGION"  # break one rh_* label
+        with pytest.raises(AtlasAlignmentError, match=r"R:"):
+            align_strength_to_atlas(values, labels, atlas="dk", hemisphere="right", regions="cort")

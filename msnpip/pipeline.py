@@ -257,7 +257,7 @@ class Pipeline:
 
     def _stage_transcriptomics(self) -> None:
         cfg = self.cfg
-        hemis: list[Literal["left", "both"]] = (
+        hemis: list[Literal["left", "right", "both"]] = (
             ["left", "both"] if cfg.engine.compare_hemispheres else [cfg.engine.hemisphere]
         )
         staging = self.out_dir / ".engine"

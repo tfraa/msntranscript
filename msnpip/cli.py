@@ -114,7 +114,18 @@ def _add_engine_args(ap):
     # --atlas and --regions are intentionally not exposed: the methodology is
     # locked to the DK atlas and cortical regions. Both keep their config.py
     # defaults and can still be overridden via a --config YAML if ever needed.
-    ap.add_argument("--hemisphere", choices=("left", "both"), default=_SUP)
+    ap.add_argument(
+        "--hemisphere",
+        choices=("left", "right", "both"),
+        default=_SUP,
+        help=(
+            "what is fed to the engine (the MSN itself is always whole-cortex). "
+            "'right' is a homotopic relabel: the engine's LEFT-hemisphere AHBA "
+            "expression is kept and only the phenotype is swapped to the rh_* "
+            "values, so a left-vs-right difference reflects phenotype asymmetry "
+            "alone. Secondary analysis — 'left' is the primary."
+        ),
+    )
     ap.add_argument("--compare-hemispheres", action="store_true", default=_SUP)
     ap.add_argument(
         "--pool-cases",
@@ -154,6 +165,42 @@ def _add_engine_args(ap):
         "--enrichment", choices=("ensemble", "gsea", "ora", "none"), action="append", default=_SUP
     )
     ap.add_argument("--geneset", nargs="+", dest="geneset", default=_SUP)
+    ap.add_argument(
+        "--gsea-backend",
+        choices=("corrected", "engine", "both"),
+        dest="gsea_backend",
+        default=_SUP,
+        help="which GSEA to run (default corrected: each surrogate re-ranked by its own "
+        "weights). 'engine' runs the pinned toolbox's own GSEA, which scores every "
+        "surrogate at the OBSERVED gene positions — an invalid null for a rank-position "
+        "statistic (pure-H0 FPR ~0.7), emitted as backend 'gseafrozen' and not for "
+        "reporting. 'both' emits each, for a methods comparison.",
+    )
+    ap.add_argument(
+        "--gsea-engine-n-iter",
+        type=int,
+        dest="gsea_engine_n_iter",
+        default=_SUP,
+        help="surrogates for --gsea-backend engine/both (default: the engine's own "
+        "hardcoded 1000, whatever --n-perm says).",
+    )
+    ap.add_argument(
+        "--geneset-min-size",
+        type=int,
+        dest="geneset_min_size",
+        default=_SUP,
+        help="drop gene-set terms with fewer than N genes present in the ranked gene "
+        "universe (default 1 = no filter). Applied to ensemble/gsea/ora alike, before "
+        "their BH step. Conventional windows: 10-2000, or GSEA's own 15-500. "
+        "PRE-SPECIFY this — tuning it on the results is p-hacking.",
+    )
+    ap.add_argument(
+        "--geneset-max-size",
+        type=int,
+        dest="geneset_max_size",
+        default=_SUP,
+        help="drop gene-set terms with more than N matched genes (default: no upper limit).",
+    )
     ap.add_argument("--seed", type=int, default=_SUP)
 
 
@@ -225,6 +272,10 @@ def _cfg_from_args(args) -> PipelineConfig:
         ("null_method", "null_method"),
         ("n_perm", "n_permutations"),
         ("n_jobs", "n_jobs"),
+        ("gsea_backend", "gsea_backend"),
+        ("gsea_engine_n_iter", "gsea_engine_n_iter"),
+        ("geneset_min_size", "geneset_min_size"),
+        ("geneset_max_size", "geneset_max_size"),
         ("seed", "seed"),
     ):
         if src in a:

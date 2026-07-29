@@ -100,8 +100,11 @@ def patched(monkeypatch):
 
     class FakeCorrGenes:
         # Minimal stand-in for the engine's CorrGenes (what the adapter reads).
+        # `pval` feeds ORA's `p` tail; CorrGenes.sort_genes() keeps genes/corr/
+        # pval/boot_corr in one shared order, so these are element-wise aligned.
         genes = np.array([["g0"], ["g1"], ["g2"]], dtype=object)
         corr = np.array([[0.5, -0.2, 0.1]])
+        pval = np.array([[0.01, 0.02, 0.90]])
         boot_corr = np.zeros((3, 4), dtype=float)
 
     class FakeCorrAnalysis:
@@ -113,7 +116,9 @@ def patched(monkeypatch):
             pass
 
         def ensemble(self, gene_set, outdir=None, n_perm=1000, geneset_organism="Human", **k):
-            rec["enrich"].append({"backend": "ensemble", "gene_set": gene_set, "outdir": str(outdir)})
+            rec["enrich"].append(
+                {"backend": "ensemble", "gene_set": gene_set, "outdir": str(outdir)}
+            )
             return pd.DataFrame({"Term": ["T1"], "z_score": [1.0], "p_val": [0.1], "fdr": [0.2]})
 
     def fake_prepare(data, config, input_rh=None):
@@ -232,7 +237,9 @@ class TestRunTranscriptomics:
         assert {e["backend"] for e in patched["enrich"]} == {"ensemble"}
 
     def test_corr_and_pls_both_run(self, patched, tmp_path):
-        cfg = EngineConfig(methods=("pls", "corr"), n_permutations=10, enrichment_methods=("ensemble",))
+        cfg = EngineConfig(
+            methods=("pls", "corr"), n_permutations=10, enrichment_methods=("ensemble",)
+        )
         out = run_transcriptomics(np.arange(34.0), _labels_df(34), cfg, tmp_path, "tag")
         assert set(out) == {"pls", "corr"}
         assert patched["fit_count"] == 1 and patched["corr_fit_count"] == 1
@@ -249,9 +256,7 @@ class TestRunTranscriptomics:
         p at 1/1001, which alone can make larger gene sets unable to reach BH
         significance — so the configured count has to be passed through.
         """
-        cfg = EngineConfig(
-            methods=("pls",), n_permutations=20000, enrichment_methods=("ensemble",)
-        )
+        cfg = EngineConfig(methods=("pls",), n_permutations=20000, enrichment_methods=("ensemble",))
         run_transcriptomics(np.arange(34.0), _labels_df(34), cfg, tmp_path, "tag")
         assert patched["ensemble_n_iter"] == 20000
 
@@ -377,3 +382,24 @@ class TestErrors:
         with pytest.raises(MsnpipEngineError, match="exploded") as excinfo:
             run_transcriptomics(np.arange(34.0), _labels_df(34), cfg, tmp_path, "tag")
         assert isinstance(excinfo.value.__cause__, ValueError)
+
+
+class TestEngineHemisphere:
+    """``hemisphere="right"`` must reach the engine as a LEFT-hemisphere run.
+
+    The right arm swaps only the phenotype (atlas_align puts the rh_* values into
+    the left label order); the AHBA expression stays left-hemisphere, so telling
+    the engine "right" would either fail or silently pair the map with a
+    2-donor right-hemisphere expression matrix.
+    """
+
+    def test_right_is_reported_to_the_engine_as_left(self):
+        from msnpip.engine import _engine_hemisphere
+
+        assert _engine_hemisphere(EngineConfig(hemisphere="right")) == "left"
+
+    def test_left_and_both_pass_through(self):
+        from msnpip.engine import _engine_hemisphere
+
+        assert _engine_hemisphere(EngineConfig(hemisphere="left")) == "left"
+        assert _engine_hemisphere(EngineConfig(hemisphere="both")) == "both"

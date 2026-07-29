@@ -8,9 +8,11 @@ enriches each gene set), wrap engine exceptions with context, and manage the
 spatial-null policy.  Two gene-ranking methods are supported: ``pls`` (the
 default, multivariate) and ``corr`` (mass-univariate map↔gene correlation).
 Both run the *same* spatial-null permutations and feed the *same* corrected
-enrichment backends (per-surrogate re-ranked GSEA, template ORA, GCEA); the
-engine's own correlation GSEA (which freezes gene positions, like its PLS GSEA)
-is deliberately bypassed.
+enrichment backends (per-surrogate re-ranked GSEA, template ORA, GCEA).  The
+engine's own GSEA — PLS and correlation alike — freezes gene positions at the
+observed ranking and is bypassed by default; ``EngineConfig.gsea_backend`` can
+re-enable it for a methods comparison, in which case its output is labelled
+``gseafrozen`` so it can never be mistaken for the corrected table.
 
 Surface-null note: the pinned engine ships the DK parcellation only as a
 FreeSurfer ``.annot``, which neuromaps' spin-null loader (``load_gifti``) cannot
@@ -186,7 +188,10 @@ def _check_surface_null(result, cfg: EngineConfig, method: str) -> None:
 
 
 def _log_enrichment_plan(
-    method: str, backends: Sequence[str], gene_sets: Sequence[str], n_permutations: int | None = None
+    method: str,
+    backends: Sequence[str],
+    gene_sets: Sequence[str],
+    n_permutations: int | None = None,
 ) -> None:
     """Announce which enrichment backends will actually run, and which are skipped.
 
@@ -264,6 +269,170 @@ def _resolve_geneset(gene_set: str) -> str:
     return s
 
 
+#: Backend label written for the engine's own (frozen-rank) GSEA. Deliberately not
+#: ``gsea``: the curation step derives the ``enrichment`` column from the filename
+#: prefix, so a distinct prefix is what keeps the invalid table from ever being
+#: pooled with, or mistaken for, the corrected one in CSVs, plots and the report.
+_FROZEN_GSEA_LABEL = "gseafrozen"
+
+
+def _run_engine_gsea(runner, gene_set, outdir: Path, cfg: EngineConfig, *, kind: str) -> None:
+    """Run the pinned engine's own GSEA and file it under ``gseafrozen_*``.
+
+    This is the **invalid** backend, exposed only so a run can reproduce or
+    exhibit published v2 behaviour (see ``EngineConfig.gsea_backend``).  The
+    engine scores every surrogate at the observed gene positions, so the null
+    varies only the running-sum increments and not the hit *order* the enrichment
+    score is built on.
+
+    Two further asymmetries make a corrected-vs-engine comparison not a clean
+    one-variable contrast, and both are logged rather than silently absorbed:
+
+    * the engine routes the observed ranking through ``gseapy.prerank``, which
+      applies its own size window (``max_size=1500`` and gseapy's ``min_size``
+      default of 15), while the corrected backend tests every matched term unless
+      ``geneset_min_size``/``geneset_max_size`` are set; and
+    * the engine's ``fdr`` column is a GSEA-style NES-ratio q-value, not the BH
+      FDR the corrected backend and the GCEA table report.
+
+    The engine writes ``gsea_pls<N>_results.tsv`` / ``gsea_corr_results.tsv`` and
+    returns nothing, so it is pointed at a scratch directory and the tables are
+    renamed on the way out.
+    """
+    import shutil
+    import tempfile
+
+    n_iter = cfg.gsea_engine_n_iter or 1000
+    logger.warning(
+        "[%s] Running the ENGINE's own GSEA (frozen gene positions, %d surrogates) — "
+        "this null is invalid for a rank-position statistic (pure-H0 FPR ~0.7). "
+        "Output is labelled %r, NOT 'gsea'. Do not report it as inference.",
+        kind,
+        n_iter,
+        _FROZEN_GSEA_LABEL,
+    )
+    if cfg.gsea_engine_n_iter is None and cfg.n_permutations != 1000:
+        logger.warning(
+            "[%s] The engine's GSEA uses its hardcoded 1000 surrogates, discarding %d of "
+            "the %d generated. Set gsea_engine_n_iter to use them all.",
+            kind,
+            cfg.n_permutations - 1000,
+            cfg.n_permutations,
+        )
+
+    staging = Path(tempfile.mkdtemp(prefix=".gseafrozen_", dir=str(outdir)))
+    try:
+        if kind == "pls":
+            runner.gsea(
+                gene_set=gene_set,
+                outdir=staging,
+                n_iter=n_iter,
+                geneset_organism=cfg.geneset_organism,
+            )
+        else:
+            runner.gsea(
+                gene_set=gene_set,
+                outdir=staging,
+                n_perm=n_iter,
+                geneset_organism=cfg.geneset_organism,
+            )
+        produced = sorted(staging.glob("gsea_*.tsv"))
+        if not produced:
+            raise MsnpipEngineError(f"The engine's {kind!r} GSEA wrote no table into {staging}.")
+        for src in produced:
+            match = re.search(r"pls(\d+)", src.stem)
+            component = match.group(1) if match else "1"
+            shutil.move(str(src), str(outdir / f"{_FROZEN_GSEA_LABEL}_pls{component}_results.tsv"))
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+
+def _gene_universe(res_obj):
+    """The ranked gene list a size filter counts overlap against, or ``None``.
+
+    Returns ``None`` rather than raising when the result object does not expose a
+    gene ranking (test doubles, engine layout drift): an absent universe disables
+    the *optional* filter, and :func:`_size_filter_geneset` still hard-fails if a
+    window was explicitly requested.
+    """
+    try:
+        return np.asarray(res_obj.orig.genes[0, :], dtype=object)
+    except Exception:  # pragma: no cover - defensive
+        return None
+
+
+def _engine_hemisphere(cfg: EngineConfig) -> str:
+    """The hemisphere the *engine* is told about.
+
+    ``cfg.hemisphere == "right"`` is a homotopic relabel of the phenotype, not a
+    right-hemisphere transcriptome (AHBA samples only 2 of 6 donors on the
+    right).  :func:`msnpip.atlas_align.align_strength_to_atlas` has already put
+    the ``rh_*`` values into the LEFT label order, so the engine must run as a
+    left-hemisphere analysis and pair them with its left expression matrix.
+    """
+    return "left" if cfg.hemisphere == "right" else cfg.hemisphere
+
+
+def _size_filter_geneset(gene_set: str, cfg: EngineConfig, gene_universe, outdir: Path, label: str):
+    """Return the gene-set resource the backends should test, size-filtered.
+
+    Resolution happens here (not in :mod:`msnpip.genes.sizefilter`) because a
+    config gene-set name may be an engine alias like ``"lake"`` rather than a
+    path.  When no window is configured the *original* argument is passed through
+    untouched — so the run stays bit-identical to an unfiltered one — and the
+    would-be filter is only reported.  Resolution/parse failures are never fatal:
+    the unfiltered gene set is used and the backend behaves exactly as before.
+    """
+    from imaging_transcriptomics.genesets import resolve_geneset_resource
+
+    from msnpip.genes.sizefilter import apply_size_filter, size_report
+
+    windowed = cfg.geneset_min_size > 1 or cfg.geneset_max_size is not None
+    if gene_universe is None:
+        if windowed:
+            raise MsnpipEngineError(
+                f"--geneset-min-size/--geneset-max-size was requested but the {label!r} "
+                "ranked gene universe is unavailable, so matched category sizes cannot "
+                "be counted. Remove the window to run unfiltered."
+            )
+        return gene_set
+    try:
+        resolved = resolve_geneset_resource(gene_set, organism=cfg.geneset_organism)
+        if not windowed:
+            report = size_report(
+                resolved,
+                gene_universe,
+                min_size=cfg.geneset_min_size,
+                max_size=cfg.geneset_max_size,
+            )
+            logger.info(
+                "geneset %r: NO size filter (%d terms, median matched size %.0f). "
+                "Set --geneset-min-size/--geneset-max-size to apply the conventional window.",
+                label,
+                report.n_terms_in,
+                report.median_matched_size,
+            )
+            return gene_set
+        filtered, _report = apply_size_filter(
+            resolved,
+            gene_universe,
+            min_size=cfg.geneset_min_size,
+            max_size=cfg.geneset_max_size,
+            outdir=outdir,
+            label=label,
+        )
+        return filtered
+    except Exception as exc:
+        if windowed:
+            raise MsnpipEngineError(
+                f"Could not apply the category-size filter to gene set {label!r}: {exc}. "
+                "Remove --geneset-min-size/--geneset-max-size to run unfiltered.",
+                cause=exc,
+            ) from exc
+        logger.debug("geneset %r: size report unavailable (%s).", label, exc)
+        return gene_set
+
+
 def _run_pls_fit_once_enrich_many(
     data: np.ndarray,
     input_rh: np.ndarray | None,
@@ -314,7 +483,7 @@ def _run_pls_fit_once_enrich_many(
     config = imt.build_run_config(
         "pls",
         atlas=cfg.atlas,
-        hemisphere=cfg.hemisphere,
+        hemisphere=_engine_hemisphere(cfg),
         regions=cfg.regions,
         source_space=None,
         n_permutations=cfg.n_permutations,
@@ -388,11 +557,15 @@ def _run_pls_fit_once_enrich_many(
     # Enrich every gene set on the already-fit model (cheap; no re-permutation).
     res_obj = analysis.gene_results.results
     enr_root = out_dir / "enrichment"
+    gene_universe = _gene_universe(res_obj)
     for gene_set in gene_sets:
         label = _geneset_label(gene_set)
         resolved = _resolve_geneset(gene_set)  # bundled .gmt path when available
         sub = enr_root / label
         sub.mkdir(parents=True, exist_ok=True)
+        # One size filter for all three backends, so they test an identical term
+        # set and each one's BH sees the same m.
+        resolved = _size_filter_geneset(resolved, cfg, gene_universe, sub, label)
         for backend in backends:
             try:
                 if backend == "ensemble":
@@ -412,26 +585,29 @@ def _run_pls_fit_once_enrich_many(
                     # froze gene positions at the observed ranking, which is
                     # anti-conservative; this reuses the engine's ES function on
                     # each spun-map PLS fit's own ranking.
-                    run_corrected_gsea(
-                        res_obj,
-                        gene_set=resolved,
-                        outdir=sub,
-                        geneset_organism=cfg.geneset_organism,
-                        n_jobs=cfg.n_jobs,
-                    )
+                    if cfg.gsea_backend in ("corrected", "both"):
+                        run_corrected_gsea(
+                            res_obj,
+                            gene_set=resolved,
+                            outdir=sub,
+                            geneset_organism=cfg.geneset_organism,
+                            n_jobs=cfg.n_jobs,
+                        )
+                    if cfg.gsea_backend in ("engine", "both"):
+                        _run_engine_gsea(res_obj, resolved, sub, cfg, kind="pls")
                 elif backend == "ora":
-                    # Template-style ORA: PLS1± tails defined by the weight ranking
-                    # (|orig.zscored| >= z_cut), Fisher over-representation vs the
-                    # gene background — reproduces the source enrichment (Martins/
-                    # Giacomel). Reported as candidate mechanisms, not primary
-                    # inference. The engine's res_obj.ora thresholded on the (spin)
-                    # p-value, which collapses the tails under the correct null.
+                    # Template-style ORA: Fisher over-representation of the PLS1±
+                    # tails vs the gene background — reproduces the source
+                    # enrichment (Martins/Giacomel). Three fixed tail rules run
+                    # together (|z|>=3, spin p<=0.05, top/bottom 500) and are
+                    # emitted as separate backends oraz/orap/oratopn. Reported as
+                    # candidate mechanisms, not primary inference: the null is the
+                    # random-gene (hypergeometric) one, not the spin null.
                     run_template_ora(
                         res_obj,
                         gene_set=resolved,
                         outdir=sub,
                         geneset_organism=cfg.geneset_organism,
-                        z_cut=cfg.ora_z_cut,
                     )
                 logger.info("enrichment[%s] gene set %r → %s", backend, label, sub)
             except Exception as exc:
@@ -454,17 +630,22 @@ def _corr_enrichment_adapter(corr_genes):
 
     if corr_genes.boot_corr is None:
         raise MsnpipEngineError(
-            "corr enrichment needs stored permutation correlations "
-            "(store_boot_corr was disabled)."
+            "corr enrichment needs stored permutation correlations (store_boot_corr was disabled)."
         )
     genes = np.asarray(corr_genes.genes[:, 0], dtype=object).reshape(1, -1)
     observed = np.asarray(corr_genes.corr[0, :], dtype=float)
     zscored = zscore(observed, ddof=1).reshape(1, -1)
     boot = np.asarray(corr_genes.boot_corr, dtype=float)[None, :, :]
+    # ORA's `p` tail also needs per-gene spin p-values. On the PLS path `orig`
+    # (weight-sorted) and `boot` (z-sorted) are in DIFFERENT row orders, so the
+    # tail rules read each namespace separately; here CorrGenes.sort_genes()
+    # reorders genes/corr/pval/boot_corr with one shared index, so both
+    # namespaces are the same order and either is safe to pair.
+    pvals = np.asarray(corr_genes.pval[0, :], dtype=float).reshape(1, -1)
     return SimpleNamespace(
         n_components=1,
         orig=SimpleNamespace(genes=genes, zscored=zscored),
-        boot=SimpleNamespace(weights=boot),
+        boot=SimpleNamespace(weights=boot, genes=genes, z_score=zscored, pval=pvals),
     )
 
 
@@ -514,7 +695,7 @@ def _run_corr_fit_once_enrich_many(
     config = imt.build_run_config(
         "corr",
         atlas=cfg.atlas,
-        hemisphere=cfg.hemisphere,
+        hemisphere=_engine_hemisphere(cfg),
         regions=cfg.regions,
         source_space=None,
         n_permutations=cfg.n_permutations,
@@ -583,11 +764,14 @@ def _run_corr_fit_once_enrich_many(
     corr_genes = analysis.gene_results.results
     adapter = _corr_enrichment_adapter(corr_genes)
     enr_root = out_dir / "enrichment"
+    gene_universe = _gene_universe(adapter)
     for gene_set in gene_sets:
         label = _geneset_label(gene_set)
         resolved = _resolve_geneset(gene_set)  # bundled .gmt path when available
         sub = enr_root / label
         sub.mkdir(parents=True, exist_ok=True)
+        # One size filter for all three backends (see the PLS path).
+        resolved = _size_filter_geneset(resolved, cfg, gene_universe, sub, label)
         for backend in backends:
             try:
                 if backend == "ensemble":
@@ -602,20 +786,24 @@ def _run_corr_fit_once_enrich_many(
                     )
                     ens.to_csv(sub / "ensemble_pls1_results.tsv", index=False, sep="\t")
                 elif backend == "gsea":
-                    run_corrected_gsea(
-                        adapter,
-                        gene_set=resolved,
-                        outdir=sub,
-                        geneset_organism=cfg.geneset_organism,
-                        n_jobs=cfg.n_jobs,
-                    )
+                    if cfg.gsea_backend in ("corrected", "both"):
+                        run_corrected_gsea(
+                            adapter,
+                            gene_set=resolved,
+                            outdir=sub,
+                            geneset_organism=cfg.geneset_organism,
+                            n_jobs=cfg.n_jobs,
+                        )
+                    if cfg.gsea_backend in ("engine", "both"):
+                        # CorrAnalysis owns the engine's correlation GSEA, not the
+                        # adapter (which only exposes what the corrected backends read).
+                        _run_engine_gsea(analysis, resolved, sub, cfg, kind="corr")
                 elif backend == "ora":
                     run_template_ora(
                         adapter,
                         gene_set=resolved,
                         outdir=sub,
                         geneset_organism=cfg.geneset_organism,
-                        z_cut=cfg.ora_z_cut,
                     )
                 logger.info("enrichment[%s] gene set %r → %s", backend, label, sub)
             except Exception as exc:
