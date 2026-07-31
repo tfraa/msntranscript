@@ -94,10 +94,13 @@ class EngineConfig:
     # must be pre-specified, not tuned on the results.
     geneset_min_size: int = 1
     geneset_max_size: int | None = None
-    ora_p_threshold: float | None = None
-    # NOTE: the template ORA's tail rules (|z|>=3, spin p<=0.05, top/bottom 500)
-    # are fixed constants in msnpip.genes.ora_mainstyle, deliberately NOT config:
-    # a tail cut chosen after seeing the results is not a pre-specified cut.
+    # ORA is the PINNED TOOLBOX's own implementation (imaging_transcriptomics.ora),
+    # not a msnpip reimplementation, so its output is citable as the reference.
+    # The tail is `p <= ora_p_threshold` on the UNCORRECTED empirical spin p-value,
+    # split by the sign of the ranking statistic; 0.05 is the toolbox's default.
+    # ORA always receives the unfiltered gene set (the toolbox applies no size
+    # window), unlike the spin-null backends — see engine._run_toolbox_ora.
+    ora_p_threshold: float = 0.05
     seed: int = 1234
     n_jobs: int = 1
 

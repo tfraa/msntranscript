@@ -1073,12 +1073,6 @@ class ReportBuilder:
                 # GCEA (ensemble) is the PRIMARY spin-null test; GSEA is a spin-null
                 # cross-check; ORA is the template over-representation test, reported
                 # only as candidate mechanisms (not spatial-null-corrected).
-                ora_note = (
-                    "CANDIDATE MECHANISMS ONLY — over-representation (Fisher, random-gene "
-                    "null), for comparability with the source literature (Martins 2022, "
-                    "Giacomel 2026). NOT spatial-null- or co-expression-corrected; do not "
-                    "treat as primary inference. odds_ratio is the effect. Tail = "
-                )
                 effect = {
                     "ensemble": (
                         "PRIMARY (spatial-spin null). z_score is the enrichment effect "
@@ -1094,15 +1088,13 @@ class ReportBuilder:
                         "Shown only as a methods comparison against the re-ranked GSEA "
                         "above; never report it as inference"
                     ),
-                    "oraz": ora_note + "|z| >= 3 on the standardized observed statistic",
-                    "orap": (
-                        ora_note + "nominal spin p <= 0.05 (uncorrected). NOTE: this tail "
-                        "is not comparable across backends — the same threshold selects "
-                        "tens of genes on the PLS path and thousands on the corr path"
-                    ),
-                    "oratopn": (
-                        ora_note + "top/bottom 500 by observed statistic (fixed tail size, "
-                        "so the backends are directly comparable)"
+                    "ora": (
+                        "CANDIDATE MECHANISMS ONLY — the pinned toolbox's own "
+                        "over-representation analysis (Fisher/hypergeometric, RANDOM-GENE "
+                        "null) of the gene tails at uncorrected spin p <= 0.05, for "
+                        "comparability with the source literature (Martins 2022, "
+                        "Giacomel 2026). NOT spatial-null- or co-expression-corrected; "
+                        "never primary inference. odds_ratio is the effect"
                     ),
                 }.get(backend, "the leading column is the enrichment effect")
                 self._table_page(

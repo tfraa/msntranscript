@@ -85,33 +85,23 @@ def test_full_pipeline_real_engine_builds_report(tmp_path):
         f"expected both gene sets enriched, got {sorted(set(enr['geneset']))}"
     )
 
-    # All three ORA tails ran and are separable in the curated table. The z tail
-    # can legitimately be empty on a synthetic map (nothing reaches |z|>=3), so
-    # require the size-independent topn tail and check whatever else appeared.
-    ora_backends = backends & {"oraz", "orap", "oratopn"}
-    assert "oratopn" in ora_backends, (
-        f"expected the fixed-size ORA tail, got ORA backends {sorted(ora_backends)}"
+    # The toolbox's OWN ORA ran (msnpip has no ORA of its own) and is separable
+    # from the spin-null backends in the curated table.
+    assert "ora" in backends, f"expected toolbox ORA rows, got {sorted(backends)}"
+    ora_rows = enr[enr["enrichment"] == "ora"]
+    assert {"direction", "selected_size", "odds_ratio"} <= set(ora_rows.columns), (
+        "ORA rows must carry the direction and the tail size the toolbox selected"
     )
-    ora_rows = enr[enr["enrichment"].isin(ora_backends)]
-    assert {"ora_tail", "tail_size", "odds_ratio"} <= set(ora_rows.columns), (
-        "ORA rows must carry the selection rule and tail size — a table that does "
-        "not say how its gene list was chosen cannot be interpreted"
-    )
-    # The label and the recorded rule must agree, so a mislabelled file is caught.
-    from msnpip.genes.ora_mainstyle import TAIL_BACKENDS
+    assert set(ora_rows["direction"]) <= {"positive", "negative"}
 
-    for backend, rule in ((v, k) for k, v in TAIL_BACKENDS.items()):
-        rows = ora_rows[ora_rows["enrichment"] == backend]
-        if not rows.empty:
-            assert set(rows["ora_tail"]) == {rule}
-
-    # The shared size filter reached every backend: no term outside the window
-    # survives anywhere, so GCEA / GSEA / ORA all corrected over the same m.
-    if "matched_size" in enr.columns:
-        sizes = enr["matched_size"].dropna()
+    # The size filter reached the SPIN-NULL backends. ORA is deliberately excluded
+    # (it runs the unfiltered set, as the toolbox does), so check only those two.
+    spin = enr[enr["enrichment"].isin(["ensemble", "gsea"])]
+    if "matched_size" in spin.columns:
+        sizes = spin["matched_size"].dropna()
         assert sizes.empty or (sizes.between(15, 500)).all(), (
-            "a term outside the 15-500 window reached the curated table — the "
-            "filtered .gmt did not reach every backend"
+            "a term outside the 15-500 window reached a spin-null backend — the "
+            "filtered .gmt did not reach it"
         )
 
     # The report assembled over the real engine output.

@@ -85,7 +85,14 @@ def patched(monkeypatch):
             self._write("gsea", gene_set, outdir)
 
         def ora(self, gene_set, outdir, p_threshold=None, geneset_organism="Human", **k):
-            self._write("ora", gene_set, outdir)
+            # Mirror the toolbox: one table per direction, and no direction column
+            # (engine._run_toolbox_ora is what adds it and merges them).
+            rec["enrich"].append({"backend": "ora", "gene_set": gene_set, "outdir": str(outdir)})
+            for direction in ("up", "down"):
+                Path(outdir, f"ora_pls1_{direction}.tsv").write_text(
+                    "Term\tselected_size\todds_ratio\tp_value\tfdr\nT1\t10\t2.0\t0.01\t0.02\n",
+                    encoding="utf-8",
+                )
 
     class FakePLSAnalysis:
         def __init__(self, imaging, gene_exp, n_components=1, var=None, n_iter=10, n_jobs=1):
@@ -121,6 +128,15 @@ def patched(monkeypatch):
             )
             return pd.DataFrame({"Term": ["T1"], "z_score": [1.0], "p_val": [0.1], "fdr": [0.2]})
 
+        def ora(self, gene_set, outdir=None, p_threshold=0.05, geneset_organism="Human", **k):
+            # The toolbox's correlation ORA lives on CorrAnalysis, not the adapter.
+            rec["enrich"].append({"backend": "ora", "gene_set": gene_set, "outdir": str(outdir)})
+            for direction in ("up", "down"):
+                Path(outdir, f"ora_corr_{direction}.tsv").write_text(
+                    "Term\tselected_size\todds_ratio\tp_value\tfdr\nT1\t10\t2.0\t0.01\t0.02\n",
+                    encoding="utf-8",
+                )
+
     def fake_prepare(data, config, input_rh=None):
         rec["prepare_data"] = np.asarray(data)
         rec["prepare_input_rh"] = None if input_rh is None else np.asarray(input_rh)
@@ -137,11 +153,8 @@ def patched(monkeypatch):
     def fake_build_run_config(method, **kw):
         return types.SimpleNamespace(method=method, **kw)
 
-    # gsea + ora now run through msnpip functions (not res_obj methods).
-    def fake_template_ora(res_obj, gene_set, outdir, geneset_organism="Human", z_cut=3.0, **k):
-        rec["enrich"].append({"backend": "ora", "gene_set": gene_set, "outdir": str(outdir)})
-        Path(outdir, "ora_pls1_results.tsv").write_text("Term\tp_val\n1\t0.1\n", encoding="utf-8")
-
+    # GSEA runs through msnpip's corrected backend; ORA is the TOOLBOX's own
+    # res_obj.ora / analysis.ora, staged and merged by engine._run_toolbox_ora.
     def fake_corrected_gsea(res_obj, gene_set, outdir, geneset_organism="Human", **k):
         rec["enrich"].append({"backend": "gsea", "gene_set": gene_set, "outdir": str(outdir)})
         Path(outdir, "gsea_pls1_results.tsv").write_text("Term\tp_val\n1\t0.1\n", encoding="utf-8")
@@ -173,7 +186,6 @@ def patched(monkeypatch):
         lambda analysis: pd.DataFrame({"gene": ["g0"], "score": [0.5], "p": [0.1], "fdr": [0.2]}),
         raising=True,
     )
-    monkeypatch.setattr(engine, "run_template_ora", fake_template_ora, raising=True)
     monkeypatch.setattr(engine, "run_corrected_gsea", fake_corrected_gsea, raising=True)
     return rec
 

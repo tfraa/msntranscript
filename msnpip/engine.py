@@ -37,7 +37,6 @@ import pandas as pd
 from msnpip.config import EngineConfig
 from msnpip.errors import MsnpipEngineError, MsnpipError, MsnpipSurfaceNullError
 from msnpip.genes.gsea_mainstyle import run_gsea as run_corrected_gsea
-from msnpip.genes.ora_mainstyle import run_ora as run_template_ora
 
 logger = logging.getLogger("msnpip.engine")
 
@@ -347,6 +346,73 @@ def _run_engine_gsea(runner, gene_set, outdir: Path, cfg: EngineConfig, *, kind:
         shutil.rmtree(staging, ignore_errors=True)
 
 
+def _run_toolbox_ora(runner, gene_set, outdir: Path, cfg: EngineConfig, *, kind: str) -> None:
+    """Run the pinned engine's OWN over-representation analysis.
+
+    msnpip deliberately has no ORA of its own: the toolbox's implementation is
+    the reference, so results are exactly what ``imaging-transcriptomics``
+    produces and can be cited as such.  It is the classic template
+    (Martins 2022, Giacomel 2026): the gene tail is ``p <= ora_p_threshold`` on
+    the *uncorrected* empirical spin p-value, split by the sign of the ranking
+    statistic, then a hypergeometric test per term with BH **within direction**.
+
+    Two properties to keep in mind when reading the output:
+
+    * the null is the **random-gene** (hypergeometric) one.  The spin null enters
+      only through which genes reach the tail, never through the term test, so
+      ORA is never spatial-null inference; and
+    * the toolbox drops terms with zero overlap with the tail before correcting,
+      so ``m`` is data-dependent and smaller than the full term set.
+
+    The toolbox writes one file per direction (``ora_pls<N>_{up,down}.tsv`` /
+    ``ora_corr_{up,down}.tsv``) with no direction column, so the tables are
+    staged, tagged with ``direction`` and merged into the single
+    ``ora_pls<N>_results.tsv`` the curation and report already consume.
+    """
+    import shutil
+    import tempfile
+
+    staging = Path(tempfile.mkdtemp(prefix=".ora_", dir=str(outdir)))
+    try:
+        runner.ora(
+            gene_set=gene_set,
+            outdir=staging,
+            p_threshold=cfg.ora_p_threshold,
+            geneset_organism=cfg.geneset_organism,
+        )
+        by_component: dict[str, list[pd.DataFrame]] = {}
+        for src in sorted(staging.glob("ora_*.tsv")):
+            match = re.search(r"pls(\d+)", src.stem)
+            component = match.group(1) if match else "1"
+            direction = "positive" if src.stem.endswith("_up") else "negative"
+            table = pd.read_csv(src, sep="\t")
+            if table.empty:
+                continue
+            table.insert(1, "direction", direction)
+            by_component.setdefault(component, []).append(table)
+        if not by_component:
+            logger.warning(
+                "[%s] ORA selected no genes in either direction (tail is p <= %s on the "
+                "uncorrected spin p-value) — no table written.",
+                kind,
+                cfg.ora_p_threshold,
+            )
+            return
+        for component, tables in by_component.items():
+            merged = pd.concat(tables, ignore_index=True)
+            merged.to_csv(outdir / f"ora_pls{component}_results.tsv", index=False, sep="\t")
+            sizes = merged.groupby("direction")["selected_size"].first().to_dict()
+            logger.info(
+                "[%s] ORA component %s: tail sizes %s, %d terms tested.",
+                kind,
+                component,
+                sizes,
+                len(merged),
+            )
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+
+
 def _gene_universe(res_obj):
     """The ranked gene list a size filter counts overlap against, or ``None``.
 
@@ -560,12 +626,15 @@ def _run_pls_fit_once_enrich_many(
     gene_universe = _gene_universe(res_obj)
     for gene_set in gene_sets:
         label = _geneset_label(gene_set)
-        resolved = _resolve_geneset(gene_set)  # bundled .gmt path when available
+        unfiltered = _resolve_geneset(gene_set)  # bundled .gmt path when available
         sub = enr_root / label
         sub.mkdir(parents=True, exist_ok=True)
-        # One size filter for all three backends, so they test an identical term
-        # set and each one's BH sees the same m.
-        resolved = _size_filter_geneset(resolved, cfg, gene_universe, sub, label)
+        # One size filter for the two spin-null backends, so GCEA and GSEA test an
+        # identical term set and each one's BH sees the same m. ORA deliberately
+        # keeps the UNFILTERED set: it is the toolbox's own implementation, run
+        # exactly as the toolbox runs it (its loader applies no size window), so
+        # the output is citable as the reference implementation.
+        resolved = _size_filter_geneset(unfiltered, cfg, gene_universe, sub, label)
         for backend in backends:
             try:
                 if backend == "ensemble":
@@ -596,19 +665,7 @@ def _run_pls_fit_once_enrich_many(
                     if cfg.gsea_backend in ("engine", "both"):
                         _run_engine_gsea(res_obj, resolved, sub, cfg, kind="pls")
                 elif backend == "ora":
-                    # Template-style ORA: Fisher over-representation of the PLS1±
-                    # tails vs the gene background — reproduces the source
-                    # enrichment (Martins/Giacomel). Three fixed tail rules run
-                    # together (|z|>=3, spin p<=0.05, top/bottom 500) and are
-                    # emitted as separate backends oraz/orap/oratopn. Reported as
-                    # candidate mechanisms, not primary inference: the null is the
-                    # random-gene (hypergeometric) one, not the spin null.
-                    run_template_ora(
-                        res_obj,
-                        gene_set=resolved,
-                        outdir=sub,
-                        geneset_organism=cfg.geneset_organism,
-                    )
+                    _run_toolbox_ora(res_obj, unfiltered, sub, cfg, kind="pls")
                 logger.info("enrichment[%s] gene set %r → %s", backend, label, sub)
             except Exception as exc:
                 logger.warning("enrichment[%s] failed for gene set %r: %s", backend, gene_set, exc)
@@ -767,11 +824,12 @@ def _run_corr_fit_once_enrich_many(
     gene_universe = _gene_universe(adapter)
     for gene_set in gene_sets:
         label = _geneset_label(gene_set)
-        resolved = _resolve_geneset(gene_set)  # bundled .gmt path when available
+        unfiltered = _resolve_geneset(gene_set)  # bundled .gmt path when available
         sub = enr_root / label
         sub.mkdir(parents=True, exist_ok=True)
-        # One size filter for all three backends (see the PLS path).
-        resolved = _size_filter_geneset(resolved, cfg, gene_universe, sub, label)
+        # Size filter for the spin-null backends only; ORA keeps the unfiltered
+        # set (see the PLS path).
+        resolved = _size_filter_geneset(unfiltered, cfg, gene_universe, sub, label)
         for backend in backends:
             try:
                 if backend == "ensemble":
@@ -799,12 +857,9 @@ def _run_corr_fit_once_enrich_many(
                         # adapter (which only exposes what the corrected backends read).
                         _run_engine_gsea(analysis, resolved, sub, cfg, kind="corr")
                 elif backend == "ora":
-                    run_template_ora(
-                        adapter,
-                        gene_set=resolved,
-                        outdir=sub,
-                        geneset_organism=cfg.geneset_organism,
-                    )
+                    # CorrAnalysis owns the toolbox's correlation ORA, not the
+                    # adapter (which only exposes what the corrected GSEA reads).
+                    _run_toolbox_ora(analysis, unfiltered, sub, cfg, kind="corr")
                 logger.info("enrichment[%s] gene set %r → %s", backend, label, sub)
             except Exception as exc:
                 logger.warning("enrichment[%s] failed for gene set %r: %s", backend, gene_set, exc)

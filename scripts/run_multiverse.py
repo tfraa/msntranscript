@@ -43,15 +43,15 @@ from pathlib import Path
 # Input: either a single merged table (DATAFRAME) or a FreeSurfer directory plus
 # a demographics file (INPUT_DIR + DEMOGRAPHICS). Leave the unused one as None.
 DATAFRAME: str | None = None
-INPUT_DIR: str | None = r"C:\percorso\alla\cartella_freesurfer"
-DEMOGRAPHICS: str | None = r"C:\percorso\al\demographics.csv"
+INPUT_DIR: str | None = r"C:\Users\Utente\OneDrive\Desktop\datasets\ftd_orig"
+DEMOGRAPHICS: str | None = r"C:\Users\Utente\OneDrive\Desktop\datasets\ftd_orig\Database_morphometric_similarity.xlsx"
 ID_COL: str | None = None  # e.g. "subject_id"; None = autodetect
 
-OUTPUT_ROOT = r"C:\Users\Utente\OneDrive\Desktop\Results"
+OUTPUT_ROOT = r"C:\Users\Utente\OneDrive\Desktop\FINRESULTS\ORA_nof"
 
 GROUP_COL = "group"
 CONTRASTS: list[tuple[str, str]] = [("1", "0"), ("2", "0"), ("3", "0")]
-POOL_CASES = True
+POOL_CASES = False
 
 # Covariate arms. The scanner arm is the confound-robust one.
 COVARIATES = {
@@ -59,8 +59,8 @@ COVARIATES = {
     "scan": ["age", "sex", "tiv", "SCANNER"],
 }
 
-N_PERM = 10000
-NCOMP = 2  # keep 2: PLS2 has carried the signal more often than PLS1
+N_PERM = 20000
+NCOMP = 1  # keep 2: PLS2 has carried the signal more often than PLS1
 N_JOBS = 1  # the GSEA inner loop is vectorised; extra workers mostly add RAM
 SEED = 1234
 NULL_METHOD = "vasa"
@@ -77,14 +77,14 @@ GENESETS = [
     "GO_Biological_Process_2025",
     "DisGeNET",
 ]
-ENRICHMENT = ["ensemble", "gsea", "ora"]  # pass all three: the flag replaces the default
+ENRICHMENT = ["ora"]  # pass all three: the flag replaces the default
 
 # Category-size window, counted after intersecting each term with the ranked gene
 # universe and applied ONCE upstream so GCEA, both GSEAs and all three ORA tails
 # test an identical term set (and each one's BH sees the same m). 15-500 is
 # GSEA's own default. PRE-SPECIFIED — never tune this on the results.
-GENESET_MIN_SIZE = 15
-GENESET_MAX_SIZE = 500
+GENESET_MIN_SIZE = 1
+GENESET_MAX_SIZE = 1500
 
 # Emit the corrected GSEA *and* the engine's frozen-ranking GSEA, at the same
 # surrogate count, so the methods comparison varies only the null and not n.
