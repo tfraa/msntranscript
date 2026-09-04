@@ -52,16 +52,16 @@ correlation p-values; no spatial null.
 - **Layer B (sampling)** — subject-level resampling of the contrast map's stability. Documented
   as a future option; not built in v2.
 
-### Enrichment validity — three orthogonal axes
-Category/cell-type inference is only as good as its null. msnpip checks these axes:
-1. **Spatial (spin) null** — the `vasa` surface spin above (Layer A). The recommended, most
-   stringent phenotype null (Arnatkeviciute et al. 2023). Verify it is real, not a silent
-   shuffle, with `python scripts/verify_vasa_null.py` (asserts resolved==`vasa`, 34 cortical
-   parcels, seed honoured) before any publication run.
-2. **Null-method sensitivity** — spin tests are distorted by the spherical projection. Re-run the
-   primary result under a non-spin null (`--null-method moran`) into a second output folder, then
-   `python scripts/null_method_sensitivity.py VASA_enrichment.csv MORAN_enrichment.csv` reports
-   the Jaccard overlap of significant categories. High overlap ⇒ null-robust.
+### Enrichment validity rests on the null
+Category/cell-type inference is only as good as its null. The `vasa` surface spin (Layer A) is
+the recommended phenotype null (Arnatkeviciute et al. 2023), but the default policy is
+fallback-with-warning, so a run that *finished* has not necessarily *spun*: the resolved null is
+recorded in a `null_method` column on every curated table and stated on the report cover — read
+it before reporting anything. Set `allow_null_fallback=False` to turn a failed spin into a hard
+error instead.
+
+Spin tests are also distorted by the spherical projection, so a result that matters is worth
+re-running under a non-spin null (`--null-method moran`) and comparing which categories survive.
 
 ### Cell-type enrichment (spin null, not Fisher)
 The bundled `LAKE_Pooled` set is the Lake et al. snRNA-seq human-cortex cell-type marker set.
@@ -101,9 +101,12 @@ would need a non-spatial null and are not part of the headline inference.)
   one. Pre-specify a single method as primary; the other is a declared sensitivity analysis.
 - **Category-size filter (`--geneset-min-size` / `--geneset-max-size`).** Off by default, so a run
   stays bit-reproducible against earlier ones. When set, terms whose size *after* intersecting with
-  the ranked gene universe falls outside the window are dropped **once, upstream of every backend**,
-  by materialising a filtered `.gmt` next to the enrichment output — so `ensemble`, `gsea` and `ora`
-  test an identical term set, each backend's BH sees the same `m`, and what was tested is auditable.
+  the ranked gene universe falls outside the window are dropped by materialising a filtered `.gmt`
+  next to the enrichment output, so what was tested is auditable rather than implied by a config
+  value. It is applied to the **spin-null backends only** — `ensemble` and `gsea` share a term set
+  and an `m`; **ORA is deliberately left unfiltered**, because the pinned toolbox's ORA applies no
+  size window and the point of that backend is to reproduce the toolbox exactly. So an ORA `m` is
+  not comparable with a GCEA `m` in the same run.
   `10–2000` is the conventional window; GSEA's own `15–500` is **wrong for this gene-set mix**
   (`LAKE_Pooled` has a median matched size of 783 and loses 6 of 7 terms). Pre-specify the bounds —
   tuning them on the results is p-hacking. On DK/left this filter *reduces* hits (small categories
@@ -126,17 +129,20 @@ would need a non-spatial null and are not part of the headline inference.)
   over-representation test** (Fisher against the gene background) reported as **candidate
   mechanisms only** — the random-gene null used by the source literature (Martins 2022,
   Giacomel 2026), *not* spatial-null-corrected, never primary inference.
-- **The three ORA tails.** Requesting `--enrichment ora` runs all three tail definitions and
-  emits them as separate backends, so a table can never be read without knowing how its gene
-  list was selected (every row also carries `ora_tail` and `tail_size`). The cuts are fixed
-  constants in `msnpip/genes/ora_mainstyle.py` and deliberately **not** configurable — a tail
-  threshold chosen after seeing the results is not a pre-specified threshold.
+- **How ORA selects its genes.** `--enrichment ora` runs the **pinned toolbox's own**
+  `imaging_transcriptomics.ora`, not a msnpip reimplementation, so the output is exactly what the
+  reference package produces. The tail is `p <= ora_p_threshold` (default `0.05`) on the
+  **uncorrected** empirical spin p-value, split by the sign of the ranking statistic; each term
+  then gets a hypergeometric test, with BH applied **within direction**. Rows carry a `direction`
+  column (`positive`/`negative`).
 
-  | backend | tail | note |
-  |---|---|---|
-  | `oraz` | `\|z\| >= 3` on the standardized observed statistic | the classic Z>3 cut of the source literature; null-independent, so it does not collapse under the spin null. Identically constructed on both paths (`zscore` across genes of the PLS weights / of the Spearman correlations). |
-  | `orap` | nominal spin `p <= 0.05`, uncorrected | what the pinned engine's own ORA does. **Not comparable across backends**: the same threshold selects tens of genes on the PLS path and thousands on the corr path, because the PLS gene null is sign-folded. |
-  | `oratopn` | top/bottom 500 by observed statistic | fixed tail *size* rather than threshold, so the two backends are directly comparable and the Fisher background ratio is held constant. |
+  Two properties decide how the table may be read. The term test uses the **random-gene**
+  (hypergeometric) null — the spin null enters only through *which genes reach the tail*, never
+  through the term test itself — so ORA is never spatial-null inference. And the toolbox drops
+  terms with zero overlap with the tail before correcting, so `m` is data-dependent and smaller
+  than the full term set. The tail is also not comparable across gene-ranking methods: the same
+  `p` threshold selects tens of genes on the PLS path and thousands on the `corr` path, because
+  the engine's PLS gene null is sign-folded.
 
 ## Reporting caveats `[PUB]`
 - Empirical p-resolution is `1/(B+1)`; with ~15,677 genes (DK) even 10⁴ permutations may not
@@ -144,6 +150,6 @@ would need a non-spatial null and are not part of the headline inference.)
 - Cross-run multiplicity (multiple contrasts/components/genesets) is **your** responsibility;
   pre-specify the primary analysis and treat the rest as exploratory.
 - Report the exact gene count for your atlas (DK = 15,677) — it is the FDR denominator.
-- Hemisphere/region choices change the science; defaults are recorded in `manifest.json` and the
-  report. The MSN uses both hemispheres; the engine input hemisphere (default `left`) is the
-  selectable part.
+- Hemisphere choice changes the science; the resolved settings are recorded on the report cover.
+  The MSN uses both hemispheres; the engine input hemisphere (default `left`) is the selectable
+  part.

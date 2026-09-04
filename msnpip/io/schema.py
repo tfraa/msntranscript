@@ -1,7 +1,4 @@
-"""
-ColumnSchema dataclass, detect_schema, validate_schema.
-Phase 1, Tasks T1.3–T1.4.
-"""
+"""ColumnSchema dataclass, detect_schema, validate_schema."""
 
 from __future__ import annotations
 
@@ -108,26 +105,7 @@ def detect_schema(
     expected_regions: list[str] | None = None,
     expected_metrics: tuple[str, ...] = ("SurfArea", "GrayVol", "ThickAvg", "MeanCurv", "GausCurv"),
 ) -> ColumnSchema:
-    """Infer the role of each column by keyword matching.
-
-    Parameters
-    ----------
-    df
-        The merged input DataFrame.
-    expected_regions
-        List of atlas region names (aparc labels).  When provided, feature
-        columns are identified by the pattern ``{hemi}_{region}_{metric}``.
-        If ``None``, any numeric column not matched to a known role is
-        treated as a feature column.
-    expected_metrics
-        Metric names used to build the feature column pattern.
-
-    Returns
-    -------
-    ColumnSchema
-        Detected roles.  Logs a warning for each role that could not be
-        detected.
-    """
+    """Infer the role of each column by keyword matching."""
     cols = list(df.columns)
     assigned: set[str] = set()
 
@@ -230,21 +208,11 @@ def validate_schema(
     - ``feature_cols`` are numeric dtype, not object (guards locale/encoding bugs).
     - At least one feature column is present.
 
-    Parameters
-    ----------
-    df
-        The DataFrame to validate.
-    schema
-        Detected column roles.
-    predictor_cols
-        Column names requested as GLM predictors (from ``GLMConfig.predictors``).
-    correlation_cols
-        Column names requested for demographic correlation.
-
     Raises
     ------
     SchemaError
         On the first violation found (does not accumulate).
+
     """
     errors: list[str] = []
 

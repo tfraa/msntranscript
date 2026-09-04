@@ -1,3 +1,1 @@
-"""
-I/O sub-package: reading, schema validation, ID matching, output writing.
-"""
+"""I/O sub-package: reading, schema validation, ID matching."""

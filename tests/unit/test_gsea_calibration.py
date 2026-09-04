@@ -75,7 +75,10 @@ def test_pvalue_matches_engine_nominal():
     n_genes, n_iter = 150, 120
     genes = [f"g{i}" for i in range(n_genes)]
     members = rng.choice(n_genes, size=25, replace=False)
-    mapping = {"SET_A": tuple(genes[i] for i in members[:15]), "SET_B": tuple(genes[i] for i in members[10:])}
+    mapping = {
+        "SET_A": tuple(genes[i] for i in members[:15]),
+        "SET_B": tuple(genes[i] for i in members[10:]),
+    }
 
     draws = rng.normal(size=(n_genes, n_iter + 1))
     draws = (draws - draws.mean(0)) / draws.std(0, ddof=1)

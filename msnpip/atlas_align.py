@@ -1,7 +1,4 @@
-"""
-Alignment layer: reorder MSN regional values to the engine atlas label order.
-Phase 1, Task T1.6.
-"""
+"""Alignment layer: reorder MSN regional values to the engine atlas label order."""
 
 from __future__ import annotations
 
@@ -34,24 +31,7 @@ _RELABEL_SOURCE_CODE = "R"
 
 
 def engine_region_order(atlas: str, hemisphere: str, regions: str) -> pd.DataFrame:
-    """Return the canonical atlas label DataFrame from the engine.
-
-    Parameters
-    ----------
-    atlas
-        Atlas identifier (e.g. ``"dk"``).
-    hemisphere
-        ``"left"`` or ``"both"``.  The ``"right"`` arm never reaches here: it is
-        resolved to ``"left"`` by :func:`align_strength_to_atlas` (see there).
-    regions
-        ``"cort"`` / ``"default"`` or ``"cort+sub"`` / ``"all"``.
-
-    Returns
-    -------
-    pd.DataFrame
-        ``id, label, hemisphere, structure`` — the authoritative region order
-        the engine expects for its input vector.
-    """
+    """Return the canonical atlas label DataFrame from the engine."""
     sel = imt.select_atlas_data(atlas=atlas, hemisphere=hemisphere, regions=regions)
     return sel.labels.reset_index(drop=True)
 
@@ -71,31 +51,6 @@ def align_strength_to_atlas(
 ) -> tuple[np.ndarray, pd.DataFrame]:
     """Reorder *values* to the engine atlas label order.
 
-    Parameters
-    ----------
-    values
-        1-D numpy array of length ``len(region_labels)`` — one value per
-        region (e.g. the group-contrast beta map).
-    region_labels
-        Region identifiers in the format ``"{hemi}_{aparc_label}"``
-        (e.g. ``"lh_bankssts"``, ``"rh_insula"``).  The hemisphere prefix
-        ``lh`` / ``rh`` is mapped to the engine codes ``L`` / ``R``.
-    atlas, hemisphere, regions
-        Engine atlas parameters forwarded to :func:`engine_region_order`.
-        ``hemisphere="right"`` requests the LEFT engine label order but fills it
-        from the ``rh_*`` values — a homotopic relabel, so the engine's
-        left-hemisphere expression is paired with the right-hemisphere
-        phenotype.  The returned *labels_df* is therefore left-labelled even for
-        the right arm; that is intentional and is what the engine must see.
-
-    Returns
-    -------
-    aligned_vector : np.ndarray
-        Values reordered to match the engine label order.
-    labels_df : pd.DataFrame
-        Engine labels DataFrame (id, label, hemisphere, structure) — the
-        same row order as *aligned_vector*.
-
     Raises
     ------
     AtlasAlignmentError
@@ -103,6 +58,7 @@ def align_strength_to_atlas(
         *region_labels*.  Never silently zero-fills.
     ValueError
         If ``len(values) != len(region_labels)``.
+
     """
     values = np.asarray(values, dtype=float)
     region_labels = list(region_labels)
@@ -173,21 +129,6 @@ def to_region_table(
     ``id, label, hemisphere, structure, <value_column>``.  This function
     builds that table from the aligned output of
     :func:`align_strength_to_atlas`.
-
-    Parameters
-    ----------
-    values
-        1-D numpy array aligned to *labels_df* row order.
-    labels_df
-        Engine labels DataFrame (output of :func:`engine_region_order` or
-        the second element of :func:`align_strength_to_atlas`'s return).
-    value_column
-        Name for the value column in the result (e.g. ``"beta"``).
-
-    Returns
-    -------
-    pd.DataFrame
-        Columns: ``id, label, hemisphere, structure, <value_column>``.
     """
     values = np.asarray(values, dtype=float)
     if len(values) != len(labels_df):

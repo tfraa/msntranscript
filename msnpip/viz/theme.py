@@ -1,6 +1,4 @@
-"""
-Shared matplotlib theme for msnpip figures.
-Phase 4, Task T4.1.
+"""Shared matplotlib theme for msnpip figures.
 
 Group colours use the Okabe–Ito colourblind-safe palette: case = orange,
 control = blue.  These set the look of every figure msnpip draws itself (the

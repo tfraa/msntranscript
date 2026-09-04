@@ -1,6 +1,4 @@
-"""
-Pipeline stage machine (LOAD → VALIDATE → MSN → CONTRAST → … → REPORT).
-Phase 5, Task T5.2 / T5.3.
+"""Pipeline stage machine (LOAD → VALIDATE → MSN → CONTRAST → … → REPORT).
 
 Produces a deliberately small, curated output set (issue 7):
 

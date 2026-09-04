@@ -1,7 +1,4 @@
-"""
-Regional plots: per-region contrast bar charts and group mean similarity matrices.
-Phase 4 (added per user request).
-"""
+"""Regional plots: per-region contrast bar charts and group mean similarity matrices."""
 
 from __future__ import annotations
 

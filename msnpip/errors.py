@@ -1,5 +1,4 @@
-"""
-MsnpipError hierarchy.
+"""MsnpipError hierarchy.
 
 Every exception raised by msnpip inherits from MsnpipError so callers can
 catch the whole family with a single except clause.
@@ -33,11 +32,6 @@ class SchemaError(MsnpipError):
 class IDMatchError(MsnpipError):
     """ID match rate between FreeSurfer subjects and demographics falls below
     the configured threshold (``IOConfig.min_id_match_rate``).
-
-    Attributes
-    ----------
-    unmatched : list[str]
-        Subject IDs present in one source but absent from the other.
     """
 
     def __init__(self, message: str, unmatched: list[str] | None = None) -> None:
@@ -93,13 +87,7 @@ class ConfigurationError(MsnpipError):
 
 
 class StageError(MsnpipError):
-    """A pipeline stage failed in a way that prevents downstream stages.
-
-    Attributes
-    ----------
-    stage : str
-        Name of the stage that raised the error (e.g. ``"VALIDATE"``).
-    """
+    """A pipeline stage failed in a way that prevents downstream stages."""
 
     def __init__(self, stage: str, message: str) -> None:
         super().__init__(f"[{stage}] {message}")

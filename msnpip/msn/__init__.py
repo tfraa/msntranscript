@@ -1,3 +1,1 @@
-"""
-MSN construction sub-package.
-"""
+"""MSN construction sub-package."""

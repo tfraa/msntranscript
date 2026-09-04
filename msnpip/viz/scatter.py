@@ -1,7 +1,4 @@
-"""
-plot_demographic_correlation — scatter with fit line, r, p, n annotation.
-Phase 4, Task T4.4.
-"""
+"""plot_demographic_correlation — scatter with fit line, r, p, n annotation."""
 
 from __future__ import annotations
 
@@ -31,27 +28,11 @@ def plot_demographic_correlation(
     the underlying ``x_values``/``y_values``).  For results without stored data
     (e.g. regional scope), pass *x* and *y* explicitly.
 
-    Parameters
-    ----------
-    corr_result
-        :class:`msnpip.stats.correlation.DemographicCorrelationResult`.
-    x, y
-        Override arrays; default to the result's stored values.
-    annotate
-        Draw the r / p / n stats box.
-    color
-        Point/line colour.
-    ax
-        Existing axes; a new figure is created if ``None``.
-
-    Returns
-    -------
-    matplotlib.figure.Figure
-
     Raises
     ------
     ValueError
         If no raw data is available to plot.
+
     """
     configure_theme()
 

@@ -1,5 +1,4 @@
-"""
-ReportBuilder — assemble an ordered, self-describing ``report.pdf``.
+"""ReportBuilder — assemble an ordered, self-describing ``report.pdf``.
 
 The report walks the analysis in the order it is performed and interleaves
 written narrative, tables and figures:

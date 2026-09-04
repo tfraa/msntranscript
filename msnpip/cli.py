@@ -1,6 +1,4 @@
-"""
-argparse CLI — console_script entry point ``msnpip``.
-Phase 5, Task T5.5.
+"""argparse CLI — console_script entry point ``msnpip``.
 
 Subcommands:
   full           run the whole pipeline LOAD→REPORT

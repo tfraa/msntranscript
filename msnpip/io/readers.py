@@ -1,7 +1,4 @@
-"""
-Locale-aware table reader and FreeSurfer subject loader.
-Phase 1, Tasks T1.1–T1.2.
-"""
+"""Locale-aware table reader and FreeSurfer subject loader."""
 
 from __future__ import annotations
 
@@ -34,25 +31,13 @@ def read_table(
 ) -> pd.DataFrame:
     """Read a tabular file with locale-aware delimiter and decimal detection.
 
-    Parameters
-    ----------
-    path
-        CSV, TSV, TXT, XLSX, or XLS file.
-    sep
-        Field separator.  If ``None``, auto-detected via ``csv.Sniffer``.
-        TSV files always use ``'\\t'``.
-    decimal
-        Decimal character.  If ``None``, auto-detected: the character that
-        maximises the number of numeric columns is chosen.
-    sheet
-        Sheet name/index for Excel files.
-
     Raises
     ------
     AmbiguousFormatError
         If the delimiter cannot be determined automatically.
     MsnpipIOError
         If the file cannot be read or parsed.
+
     """
     path = Path(path)
     suffix = path.suffix.lower()
@@ -140,26 +125,6 @@ def read_freesurfer_subjects(
 
         root/<subject_id>/stats/lh.aparc.stats
         root/<subject_id>/stats/rh.aparc.stats
-
-    Parameters
-    ----------
-    root
-        FreeSurfer subjects directory (parent of per-subject dirs).
-    expected_regions
-        Cortical region names expected to appear in each file (aparc label
-        names without hemisphere prefix).  Regions absent from a file are
-        filled with NaN.  If ``None``, whatever the file contains is used.
-    metrics
-        Subset of aparc.stats columns to extract (default: the 5 MSN
-        features).
-
-    Returns
-    -------
-    pd.DataFrame
-        Wide format: one row per subject, columns ``subject_id`` followed by
-        ``{hemi}_{region}_{metric}`` for every (hemisphere, region, metric)
-        combination.  Missing values are NaN.  Per-subject issues are
-        recorded in ``df.attrs["issues"]``.
     """
     root = Path(root)
     issues: list[dict] = []
@@ -311,19 +276,6 @@ def read_feature_tables(
     are merged on subject ID into the wide ``{hemi}_{region}_{Metric}`` matrix.
     Embedded demographic columns (``Group``, ``Diagnosis``, ``eTIV``→``tiv`` …)
     are carried through once if present.
-
-    Parameters
-    ----------
-    source
-        A directory (globs ``aparc_*`` tabular files, else any tabular file) or
-        an explicit list of file paths.
-    sep, decimal
-        Forwarded to :func:`read_table` (auto-detected when ``None``).
-
-    Returns
-    -------
-    pd.DataFrame
-        ``subject_id`` + canonical feature columns + any demographic columns.
     """
     paths = _gather_feature_files(source)
     if not paths:
@@ -400,13 +352,7 @@ def detect_input_kind(path: str | Path) -> str:
 
 
 def _parse_aparc_stats(text: str, metrics: tuple[str, ...]) -> dict[str, dict[str, float]]:
-    """Parse the text of an aparc.stats file.
-
-    Returns
-    -------
-    dict
-        ``{region_name: {metric_name: float_value}}``
-    """
+    """Parse the text of an aparc.stats file."""
     col_headers: list[str] | None = None
     data: dict[str, dict[str, float]] = {}
 

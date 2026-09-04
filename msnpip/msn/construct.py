@@ -1,18 +1,10 @@
-"""
-MSN construction: build_msn, node_strength, compute_strength_maps → StrengthMaps.
-Phase 2, Tasks T2.1–T2.2.
+"""MSN construction: per-subject similarity matrices and node-strength maps.
 
-The Morphometric Similarity Network (MSN) for a subject is built from a
-``(n_regions, n_metrics)`` feature matrix (the locked default is 5 metrics:
-SurfArea, GrayVol, ThickAvg, MeanCurv, GausCurv), following Tomasella et al.:
-
-1. Each metric is normalized *across regions within the subject* with a robust
-   **modified z-score**: ``M = 0.6745·(x − median) / MAD``.
-2. The morphometric **distance** between two regions is the multivariate
-   Euclidean distance over the normalized metrics: ``d = sqrt(Σ (xᵢ − yᵢ)²)``.
-3. Distance is converted to a **similarity** weight, normalized by the number of
-   features: ``S = 1 / (1 + d / n_metrics)`` — bounded (0, 1], 1 at d=0.
-4. **Node strength** is the sum of a region's edge weights to all other regions.
+Each metric is normalised across regions within the subject with a modified z-score
+``M = 0.6745*(x - median)/MAD``.  Edges are then either the Euclidean distance over
+the normalised metrics converted to a similarity ``S = 1/(1 + d/n_metrics)``, bounded
+(0, 1] (Tomasella et al.), or the Pearson correlation between the two regions'
+metric vectors.  Node strength is the mean (default) or sum of a region's edges.
 """
 
 from __future__ import annotations
@@ -26,12 +18,12 @@ from scipy.spatial.distance import cdist
 
 from msnpip.errors import MSNInputError
 
-# Modified-z-score constant (0.6745 = 0.75 quantile of the standard normal).
+# 0.6745 = 0.75 quantile of the standard normal.
 _MAD_CONSTANT = 0.6745
 
 logger = logging.getLogger("msnpip.msn.construct")
 
-# Locked MSN feature set (must match MSNConfig defaults / synthetic fixture).
+# Must match MSNConfig defaults and the synthetic fixture.
 DEFAULT_METRICS: tuple[str, ...] = ("SurfArea", "GrayVol", "ThickAvg", "MeanCurv", "GausCurv")
 
 _HEMI_FOR: dict[str, tuple[str, ...]] = {
@@ -41,17 +33,10 @@ _HEMI_FOR: dict[str, tuple[str, ...]] = {
 }
 
 
-# ---------------------------------------------------------------------------
-# T2.1 — build_msn
-# ---------------------------------------------------------------------------
-
-
 def _modified_zscore(features: np.ndarray) -> np.ndarray:
     """Robust within-subject normalization per metric: 0.6745·(x − median)/MAD.
 
-    Computed down regions (axis 0) for each metric column.  Columns with zero
-    MAD (a metric constant across regions) contribute 0 (no discriminative
-    information) rather than producing inf/NaN.
+    Zero-MAD columns contribute 0 rather than inf/NaN.
     """
     median = np.nanmedian(features, axis=0)
     mad = np.nanmedian(np.abs(features - median), axis=0)
@@ -64,17 +49,8 @@ def _modified_zscore(features: np.ndarray) -> np.ndarray:
 def _build_one(features: np.ndarray, similarity: str = "distance") -> np.ndarray:
     """Build one subject's region×region morphometric similarity matrix.
 
-    Each metric is modified-z-scored across regions, then edges are computed by
-    one of:
-
-    * ``"distance"`` (default) — the multivariate Euclidean distance between
-      regions converted to a similarity ``1/(1 + d/n_metrics)`` ∈ (0, 1]
-      (strictly positive; Tomasella-style).
-    * ``"correlation"`` — the Pearson correlation between the two regions'
-      z-scored metric vectors ∈ [-1, 1] (the canonical morphometric similarity of
-      Seidlitz 2018 / Morgan 2019; **can be negative**).
-
-    The diagonal is set to NaN (a region has no self-edge).
+    ``"distance"`` gives ``1/(1 + d/n_metrics)`` ∈ (0, 1]; ``"correlation"`` gives the
+    Pearson correlation ∈ [-1, 1], which can be negative.  Diagonal is NaN.
     """
     all_nan = np.all(np.isnan(features), axis=1)
     if all_nan.any():
@@ -102,25 +78,10 @@ def _build_one(features: np.ndarray, similarity: str = "distance") -> np.ndarray
 
 
 def build_msn(subject_features: np.ndarray, similarity: str = "distance") -> np.ndarray:
-    """Construct per-subject MSNs.
+    """Construct per-subject MSNs from ``(n_subjects, n_regions, n_metrics)``.
 
-    Parameters
-    ----------
-    subject_features
-        Array of shape ``(n_subjects, n_regions, n_metrics)``.  A single
-        subject may be passed as ``(n_regions, n_metrics)``.
-
-    Returns
-    -------
-    np.ndarray
-        ``(n_subjects, n_regions, n_regions)`` similarity matrices with a
-        NaN diagonal.  If a single 2-D matrix was passed, a 2-D matrix is
-        returned.
-
-    Raises
-    ------
-    MSNInputError
-        If any region is all-NaN or any metric is constant across regions.
+    A single subject may be passed as 2-D, in which case a 2-D matrix is returned.
+    Raises ``MSNInputError`` if a region is all-NaN or a metric is constant.
     """
     arr = np.asarray(subject_features, dtype=float)
     single = arr.ndim == 2
@@ -137,30 +98,12 @@ def build_msn(subject_features: np.ndarray, similarity: str = "distance") -> np.
     return out[0] if single else out
 
 
-# ---------------------------------------------------------------------------
-# T2.1 — node_strength
-# ---------------------------------------------------------------------------
-
-
 def node_strength(msn: np.ndarray, *, agg: str = "mean") -> np.ndarray:
-    """Compute per-region node strength from similarity matrices.
+    """Per-region node strength: the aggregate of a region's edges, excluding the NaN
+    diagonal.
 
-    Node strength is the aggregate of a region's edge weights to all other
-    regions (the NaN diagonal is excluded).
-
-    Parameters
-    ----------
-    msn
-        ``(n_subjects, n_regions, n_regions)`` (or a single 2-D matrix) with a
-        NaN diagonal.
-    agg
-        ``"mean"`` (default, per Morgan 2019 / Seidlitz 2018) or ``"sum"`` of the
-        edges.  On a complete network the two differ only by a constant scale.
-
-    Returns
-    -------
-    np.ndarray
-        ``(n_subjects, n_regions)`` node strengths (or 1-D for a single matrix).
+    ``agg`` is ``"mean"`` (default) or ``"sum"``; on a complete network they differ
+    only by a constant scale.
     """
     if agg not in ("sum", "mean"):
         raise ValueError(f"agg must be 'sum'/'mean', got {agg!r}")
@@ -174,17 +117,11 @@ def node_strength(msn: np.ndarray, *, agg: str = "mean") -> np.ndarray:
     return out[0] if single else out
 
 
-# ---------------------------------------------------------------------------
-# T2.2 — StrengthMaps + compute_strength_maps
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class StrengthMaps:
-    """Container for per-subject MSN matrices and node-strength maps.
+    """Per-subject MSN matrices and node-strength maps.
 
-    ``region_labels`` use the ``"{hemi}_{aparc_label}"`` format
-    (e.g. ``"lh_bankssts"``) so the strength vectors feed
+    ``region_labels`` use ``"{hemi}_{aparc_label}"`` so the strength vectors feed
     :func:`msnpip.atlas_align.align_strength_to_atlas` directly.
     """
 
@@ -212,9 +149,8 @@ class StrengthMaps:
 def _parse_feature_col(col: str) -> tuple[str, str, str] | None:
     """Split ``"{hemi}_{region}_{metric}"`` → (hemi, region, metric).
 
-    Region names may themselves contain no underscore in the DK atlas, but the
-    split is robust to that: first token = hemi, last token = metric, middle =
-    region.  Returns ``None`` if the column is not a hemi-prefixed feature.
+    First token = hemi, last = metric, middle = region, so multi-word region names
+    are safe.  ``None`` if the column is not a hemi-prefixed feature.
     """
     parts = col.split("_")
     if len(parts) < 3 or parts[0] not in ("lh", "rh"):
@@ -239,57 +175,23 @@ def compute_strength_maps(
 ) -> StrengthMaps:
     """Build MSNs and node-strength maps for a cohort.
 
-    Parses ``schema.feature_cols`` into ``(hemi, region, metric)``, assembles a
-    ``(n_subjects, n_regions, n_metrics)`` tensor for the requested
-    *hemisphere*, drops (never imputes) subjects whose fraction of missing
-    features exceeds *drop_threshold*, then builds the MSN and node strength.
+    Subjects whose fraction of missing features exceeds *drop_threshold* are dropped,
+    never imputed; the default ``0.0`` drops any subject with a missing feature.
 
-    The MSN is a whole-cortex network, so *hemisphere* defaults to ``"both"``:
-    every region's node strength reflects its similarity to all other regions
-    across both hemispheres, and group differences are available for the left
-    and right cortex.  The choice of which hemisphere(s) to feed the
-    transcriptomics engine is made later (``EngineConfig.hemisphere``), at the
-    :func:`msnpip.atlas_align.align_strength_to_atlas` boundary — not here.
+    *hemisphere* defaults to ``"both"`` because the MSN is a whole-cortex network.
+    Which hemisphere reaches the transcriptomics engine is decided later, at the
+    :func:`msnpip.atlas_align.align_strength_to_atlas` boundary.
 
-    Parameters
-    ----------
-    df
-        Merged feature + demographics DataFrame.
-    schema
-        :class:`msnpip.io.schema.ColumnSchema` describing the columns.
-    atlas, hemisphere, regions
-        Atlas selection.  ``hemisphere`` ∈ {``left``, ``right``, ``both``};
-        defaults to ``"both"`` (whole-cortex MSN).
-    drop_threshold
-        A subject is dropped if its proportion of missing (NaN) selected
-        feature values is **greater than** this threshold.  The default
-        ``0.0`` drops any subject with one or more missing features.
-    agg
-        Node-strength aggregation (see :func:`node_strength`); ``"sum"`` default.
-    metrics
-        Metric names and the order of the metric axis.
-
-    Returns
-    -------
-    StrengthMaps
-
-    Raises
-    ------
-    MSNInputError
-        If no feature columns match the requested hemisphere/metrics, or if no
-        subjects survive the drop step.
+    Raises ``MSNInputError`` if no feature column matches, or no subject survives.
     """
     if hemisphere not in _HEMI_FOR:
         raise MSNInputError(f"hemisphere must be one of {sorted(_HEMI_FOR)}, got {hemisphere!r}")
     wanted_hemis = _HEMI_FOR[hemisphere]
     metric_index = {m: i for i, m in enumerate(metrics)}
 
-    # Discover the (hemi, region) grid present for the requested hemisphere/metrics,
-    # preserving first-seen region order for determinism. This order follows the input
-    # feature-column order, not a fixed aparc order — which is safe scientifically:
-    # standardization is within-subject per metric (order-agnostic) and downstream
-    # engine alignment is by (hemisphere, label), not position. It only affects the
-    # row/column order of raw MSN-matrix printouts/plots.
+    # First-seen region order, i.e. input column order rather than a fixed aparc one.
+    # Safe: standardization is per metric and engine alignment is by label, not
+    # position; only raw matrix plots see this order.
     region_order: list[str] = []
     seen_regions: set[str] = set()
     grid: dict[tuple[str, str, str], str] = {}  # (hemi, region, metric) → column
@@ -316,12 +218,10 @@ def compute_strength_maps(
     n_regions = len(region_labels)
     n_metrics = len(metrics)
 
-    # Subject IDs (preserve df row order).
     if schema.id_col is None or schema.id_col not in df.columns:
         raise MSNInputError("schema.id_col is required to label subjects.")
     all_ids = df[schema.id_col].astype(str).tolist()
 
-    # Assemble the per-subject tensor; NaN for any missing column.
     n_total = len(df)
     tensor = np.full((n_total, n_regions, n_metrics), np.nan, dtype=float)
     for ri, label in enumerate(region_labels):
@@ -331,7 +231,6 @@ def compute_strength_maps(
             if col is not None:
                 tensor[:, ri, mi] = pd.to_numeric(df[col], errors="coerce").to_numpy()
 
-    # Drop-and-report incomplete subjects.
     n_cells = n_regions * n_metrics
     missing_frac = np.isnan(tensor).reshape(n_total, n_cells).mean(axis=1)
     keep_mask = missing_frac <= drop_threshold

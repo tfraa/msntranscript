@@ -1,7 +1,4 @@
-"""
-ID matching and subject-level merge with match-rate threshold.
-Phase 1, Task T1.5.
-"""
+"""ID matching and subject-level merge with match-rate threshold."""
 
 from __future__ import annotations
 
@@ -25,16 +22,6 @@ def normalize_ids(ids: pd.Series) -> pd.Series:
     This is the **only** transformation applied.  IDs are otherwise kept
     exactly as they appear in the file — ``sub-001`` stays ``sub-001`` and
     will only match another ``sub-001``, not ``sub-1`` or ``SUB-001``.
-
-    Parameters
-    ----------
-    ids
-        Series of raw ID strings.
-
-    Returns
-    -------
-    pd.Series
-        IDs with whitespace stripped, same index as input.
     """
     return ids.astype(str).str.strip()
 
@@ -58,32 +45,11 @@ def merge_features_demographics(
     transformation is applied — ``sub-001`` and ``sub-1`` are treated as
     distinct IDs and will not match.
 
-    Parameters
-    ----------
-    features
-        Wide-format morphometric feature DataFrame (from
-        ``read_freesurfer_subjects``).
-    demographics
-        Demographics DataFrame (from ``read_table``).
-    feat_id_col
-        Name of the ID column in *features*.
-    dem_id_col
-        Name of the ID column in *demographics*.
-    min_match_rate
-        Fraction of feature subjects that must have a matching demographic
-        row.  Raises ``IDMatchError`` if the match rate falls below this.
-        Computed as ``n_matched / n_features``.
-
-    Returns
-    -------
-    pd.DataFrame
-        Merged DataFrame (inner join).  IDs are preserved exactly as they
-        appear in *features*.
-
     Raises
     ------
     IDMatchError
         If ``n_matched / n_features < min_match_rate``.
+
     """
     if feat_id_col not in features.columns:
         raise ValueError(f"Feature ID column '{feat_id_col}' not in features DataFrame.")

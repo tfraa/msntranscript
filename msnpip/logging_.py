@@ -1,5 +1,4 @@
-"""
-Structured, optionally coloured logging for msnpip.
+"""Structured, optionally coloured logging for msnpip.
 
 Usage (in every module)::
 
@@ -76,11 +75,6 @@ def configure_logging(verbose: bool = False) -> None:
 
     Must be called once before any stage runs.  Subsequent calls are
     idempotent (handlers are not duplicated).
-
-    Parameters
-    ----------
-    verbose : bool
-        If True, set the root logger to DEBUG; otherwise INFO.
     """
     root = logging.getLogger("msnpip")
     root.setLevel(logging.DEBUG if verbose else logging.INFO)
@@ -95,14 +89,7 @@ def configure_logging(verbose: bool = False) -> None:
 
 
 def get_logger(name: str) -> logging.Logger:
-    """Return a child of the ``msnpip`` root logger.
-
-    Parameters
-    ----------
-    name : str
-        Typically ``__name__`` of the calling module.  The ``msnpip.``
-        prefix is added automatically if absent.
-    """
+    """Return a child of the ``msnpip`` root logger."""
     if not name.startswith("msnpip."):
         name = f"msnpip.{name}"
     return logging.getLogger(name)

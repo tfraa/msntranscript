@@ -16,8 +16,7 @@ build/
 venv/
 env/
 
-# Lockfile (track this)
-# uv.lock is committed intentionally
+# The pinned runtime set lives in constraints.txt, which is tracked.
 
 # Logs
 *.log

@@ -1,29 +1,12 @@
-"""Category-size filtering of a gene set, applied uniformly across all backends.
+"""Category-size filtering of a gene set.
 
-Standard practice in enrichment analysis is to test only categories whose size —
-counted **after** intersecting with the ranked gene universe — falls in a
-pre-specified window (GSEA's own defaults are 15–500; Fulcher's GCEA toolbox uses
-10–200; most GO analyses use 10–500).  Two reasons, both statistical and both
-decided *a priori*:
+Terms whose size — counted after intersecting with the ranked gene universe — falls
+outside ``[min_size, max_size]`` are dropped by materialising a filtered ``.gmt``, so the
+tested term set is auditable rather than implied by a config value.  Off by default
+(``min_size=1``, ``max_size=None``) so existing runs stay bit-reproducible.
 
-* a category score that is the mean of 3 genes is dominated by sampling noise, so
-  such terms land in the empirical tail more often than large ones and inflate the
-  BH denominator *and* the BH mass; and
-* a 3-gene or 4000-gene term is not biologically interpretable even if it survives.
-
-The filter here is deliberately applied **once, upstream of every backend**, by
-materialising a filtered ``.gmt``:
-
-* all three backends (GCEA/``ensemble``, re-ranked GSEA, template ORA) then test
-  the *identical* term set, so their results are directly comparable;
-* filtering happens before each backend's own BH correction, which is the only
-  point at which it can legitimately change ``m``; and
-* the filtered ``.gmt`` is written next to the enrichment output, so the exact
-  tested term set is auditable rather than implied by a config value.
-
-The filter is **off by default** (``min_size=1``, ``max_size=None``) so existing
-runs stay bit-reproducible.  :func:`size_report` is logged regardless, so the
-number of degenerate terms is visible even when nothing is filtered.
+NOTE: this feeds the spin-null backends only.  ORA is deliberately run on the unfiltered
+set, matching the pinned toolbox, so the two do not share ``m``.
 """
 
 from __future__ import annotations
@@ -41,7 +24,7 @@ logger = get_logger("genes")
 
 @dataclass(frozen=True)
 class SizeFilterReport:
-    """What a size filter did to one gene set (for logs, provenance, methods)."""
+    """What a size filter did to one gene set."""
 
     n_terms_in: int
     n_terms_out: int
@@ -109,9 +92,8 @@ def write_filtered_gmt(
 ) -> tuple[str, SizeFilterReport]:
     """Write a ``.gmt`` holding only terms inside the matched-size window.
 
-    Members are **not** restricted to the universe — the full member list is kept
-    so each backend still computes its own overlap exactly as it would have; only
-    whole terms are dropped.  Returns the written path and the report.
+    Full member lists are kept — only whole terms are dropped — so each backend
+    still computes its own overlap.  Returns the written path and the report.
     """
     sizes = matched_sizes(geneset_resource, gene_universe)
     mapping = as_geneset_mapping(geneset_resource)
@@ -141,9 +123,8 @@ def apply_size_filter(
 ):
     """Resolve a gene set to what the backends should actually test.
 
-    Returns ``(resource, report)``.  When no window is set the original
-    *geneset_resource* is returned untouched (so runs stay bit-reproducible) and
-    the report still describes how many terms *would* have been dropped.
+    Returns ``(resource, report)``.  With no window set the resource is returned
+    untouched, and the report still says how many terms would have been dropped.
     """
     report = size_report(geneset_resource, gene_universe, min_size=min_size, max_size=max_size)
     if not report.applied:

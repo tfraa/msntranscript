@@ -1,5 +1,4 @@
-"""
-msnpip 2.0 — Morphometric Similarity Network Imaging Transcriptomics Pipeline.
+"""msnpip 2.0 — Morphometric Similarity Network Imaging Transcriptomics Pipeline.
 
 Public surface::
 

@@ -1,6 +1,4 @@
-"""
-correlate_strength_with_demographic — Spearman, within-group, no spatial null.
-Phase 2, Task T2.5.
+"""correlate_strength_with_demographic — Spearman, within-group, no spatial null.
 
 This is the *behavioural*/demographic correlation (Layer 0): does node strength
 track a continuous variable such as age?  It is engine-independent and uses no
@@ -69,35 +67,11 @@ def correlate_strength_with_demographic(
 ) -> DemographicCorrelationResult:
     """Correlate node strength with a demographic variable.
 
-    Parameters
-    ----------
-    strength_maps
-        :class:`msnpip.msn.construct.StrengthMaps`.
-    df
-        DataFrame containing *variable* (and the group column if filtering).
-        Rows are aligned to ``strength_maps.subject_ids`` by ``schema.id_col``.
-    schema
-        Column schema.
-    variable
-        Numeric demographic column to correlate against.
-    scope
-        ``"global"`` → correlate ``global_strength`` with *variable*;
-        ``"regional"`` → per-region correlation + BH FDR across regions.
-    within_group
-        If given, restrict to subjects whose group column equals this value.
-    group_col
-        Group column for ``within_group``; defaults to ``schema.group_col``.
-    method
-        ``"spearman"`` (default) or ``"pearson"``.
-
-    Returns
-    -------
-    DemographicCorrelationResult
-
     Raises
     ------
     SchemaError
         If *variable* is missing or non-numeric, or no subjects remain.
+
     """
     if scope not in ("global", "regional"):
         raise ValueError(f"scope must be 'global'/'regional', got {scope!r}")

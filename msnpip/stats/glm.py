@@ -1,12 +1,8 @@
-"""
-Design matrix, OLS fit, residualization, regional_group_contrast.
-Phase 2, Tasks T2.3–T2.4.
+"""Design matrix, OLS fit, residualization and the per-region group contrast.
 
-OLS is implemented in closed form (numpy) rather than delegated to statsmodels
-so the unit tests can validate it *against* statsmodels — this is where the
-real-world locale/coding bugs were caught.  Categorical predictors (sex, site)
-are always one-hot encoded with a dropped reference level; site coding is a
-locked decision.
+OLS is closed-form numpy rather than statsmodels so the unit tests can validate it
+*against* statsmodels.  Categorical predictors are one-hot encoded with a dropped
+reference level.
 """
 
 from __future__ import annotations
@@ -22,7 +18,7 @@ from msnpip.errors import SchemaError
 
 logger = logging.getLogger("msnpip.stats.glm")
 
-# Below this per-group n, contrasts/violins are flagged as small-sample (spec R7).
+# Below this per-group n, contrasts and violins are flagged as small-sample.
 MIN_GROUP_N = 10
 
 
@@ -43,11 +39,9 @@ def normalize_group_value(value) -> str:
 
 
 def group_mask(series: pd.Series, label) -> pd.Series:
-    """Boolean mask of *series* rows whose group value matches *label*,
-    robust to numeric/string differences (``1`` vs ``1.0`` vs ``'1'``).
+    """Rows of *series* matching *label*, robust to ``1`` vs ``1.0`` vs ``'1'``.
 
-    *label* may be a single value or a collection of values (for a pooled arm,
-    e.g. ``(1, 2, 3)`` → any of those groups)."""
+    *label* may be a collection, for a pooled arm."""
     normalized = series.map(normalize_group_value)
     if isinstance(label, (list, tuple, set, frozenset)):
         wanted = {normalize_group_value(x) for x in label}
@@ -56,11 +50,10 @@ def group_mask(series: pd.Series, label) -> pd.Series:
 
 
 def benjamini_hochberg(pvalues) -> np.ndarray:
-    """Benjamini-Hochberg FDR-adjusted p-values (q-values).
+    """Benjamini-Hochberg FDR-adjusted p-values.
 
-    NaN inputs are ignored in the ranking and returned as NaN, so partially
-    estimable contrast maps still get a valid correction over their finite
-    entries.  Output q-values are clipped to ``[0, 1]`` and enforced monotone.
+    NaNs are excluded from the ranking and returned as NaN, so a partially estimable
+    map is still corrected over its finite entries.  Output is clipped and monotone.
     """
     p = np.asarray(pvalues, dtype=float)
     q = np.full(p.shape, np.nan)
@@ -78,11 +71,6 @@ def benjamini_hochberg(pvalues) -> np.ndarray:
     return q
 
 
-# ---------------------------------------------------------------------------
-# T2.3 — build_design_matrix
-# ---------------------------------------------------------------------------
-
-
 def build_design_matrix(
     df: pd.DataFrame,
     predictors,
@@ -92,30 +80,9 @@ def build_design_matrix(
 ) -> pd.DataFrame:
     """Build a numeric design matrix from a list of predictor columns.
 
-    Numeric predictors are passed through; non-numeric predictors are one-hot
-    encoded (``drop_first`` drops the alphabetically-first level as the
-    reference, avoiding collinearity with the intercept).
-
-    Parameters
-    ----------
-    df
-        Source DataFrame.
-    predictors
-        Iterable of column names to include.
-    add_intercept
-        Prepend an ``Intercept`` column of ones.
-    drop_first
-        Drop the first level of each categorical predictor.
-
-    Returns
-    -------
-    pd.DataFrame
-        Design matrix with named columns, float dtype, same row index as *df*.
-
-    Raises
-    ------
-    SchemaError
-        If a requested predictor is missing from *df*.
+    Numeric predictors pass through; categorical ones are one-hot encoded, with
+    ``drop_first`` dropping the alphabetically-first level to avoid collinearity with
+    the intercept.  Raises ``SchemaError`` if a predictor is missing.
     """
     predictors = list(predictors)
     missing = [c for c in predictors if c not in df.columns]
@@ -145,11 +112,6 @@ def build_design_matrix(
     return design.astype(float)
 
 
-# ---------------------------------------------------------------------------
-# T2.3 — fit_ols
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class OLSResult:
     """Result of an ordinary-least-squares fit."""
@@ -172,20 +134,7 @@ class OLSResult:
 
 
 def fit_ols(X, y) -> OLSResult:
-    """Fit ``y = X @ beta + e`` by ordinary least squares (closed form).
-
-    Parameters
-    ----------
-    X
-        Design matrix — a ``pd.DataFrame`` (column names preserved) or a 2-D
-        array.
-    y
-        Response vector.
-
-    Returns
-    -------
-    OLSResult
-    """
+    """Fit ``y = X @ beta + e`` by ordinary least squares, in closed form."""
     if isinstance(X, pd.DataFrame):
         colnames = list(X.columns)
         Xmat = X.to_numpy(dtype=float)
@@ -232,31 +181,11 @@ def fit_ols(X, y) -> OLSResult:
     )
 
 
-# ---------------------------------------------------------------------------
-# T2.3 — residualize
-# ---------------------------------------------------------------------------
-
-
 def residualize(y, covariates, *, add_intercept: bool = True, add_back_mean: bool = False):
     """Regress *y* on *covariates* and return the residuals.
 
-    Parameters
-    ----------
-    y
-        Response vector.
-    covariates
-        Design matrix of covariates (DataFrame or array).  An intercept is
-        added unless one is already present and ``add_intercept=False``.
-    add_intercept
-        Prepend a column of ones to *covariates*.
-    add_back_mean
-        If True, add the grand mean of *y* back to the residuals so the
-        residualized values retain the original scale/location.
-
-    Returns
-    -------
-    np.ndarray
-        Residuals (1-D), same length as *y*.
+    ``add_back_mean`` restores the grand mean of *y* so residuals keep the original
+    location.
     """
     yvec = np.asarray(y, dtype=float).ravel()
 
@@ -277,16 +206,11 @@ def residualize(y, covariates, *, add_intercept: bool = True, add_back_mean: boo
     return resid
 
 
-# ---------------------------------------------------------------------------
-# T2.4 — regional_group_contrast
-# ---------------------------------------------------------------------------
-
-
 @dataclass
 class GroupContrastResult:
     """Per-region case-vs-control contrast map.
 
-    ``region_labels`` use the ``"{hemi}_{aparc_label}"`` format so the map feeds
+    ``region_labels`` use ``"{hemi}_{aparc_label}"`` so the map feeds
     :func:`msnpip.atlas_align.align_strength_to_atlas` directly.
     """
 
@@ -300,9 +224,7 @@ class GroupContrastResult:
     atlas: str = "dk"
     hemisphere: str = "left"
     regions: str = "cort"
-    # Full per-region group-effect statistics (always populated), so the report
-    # can highlight significant regions with beta + t + p + FDR regardless of
-    # which ``stat_type`` was selected for the exported contrast map.
+    # Always populated, whatever ``stat_type`` the exported map uses.
     beta: np.ndarray | None = None
     tvalue: np.ndarray | None = None
     pvalue: np.ndarray | None = None
@@ -357,40 +279,11 @@ def regional_group_contrast(
 ) -> GroupContrastResult:
     """Contrast node strength between two groups, per region.
 
-    For each region, fits ``strength ~ group + covariates`` by OLS (group coded
-    1 = case, 0 = control) and exports a per-region statistic:
+    Fits ``strength ~ group + covariates`` by OLS per region (group coded 1 = case)
+    and exports ``"beta"`` (default), ``"t"``, or ``"cohen_d"`` — the standardized
+    mean difference on covariate-residualized strength.
 
-    - ``"beta"``  (default): the group coefficient.
-    - ``"t"``     : its t-statistic.
-    - ``"cohen_d"``: standardized mean difference on covariate-residualized
-      strength (Cohen's d, pooled SD).
-
-    Parameters
-    ----------
-    strength_maps
-        :class:`msnpip.msn.construct.StrengthMaps`.
-    df
-        DataFrame with the group column and covariates.  Rows are aligned to
-        ``strength_maps.subject_ids`` by ``schema.id_col``.
-    schema
-        Column schema (provides ``id_col`` and the default ``group_col``).
-    case_label, control_label
-        Values in the group column identifying each arm.
-    group_col
-        Group column name; defaults to ``schema.group_col``.
-    covariates
-        Covariate column names (numeric pass-through, categorical one-hot).
-    stat
-        Which statistic to export.
-
-    Returns
-    -------
-    GroupContrastResult
-
-    Raises
-    ------
-    SchemaError
-        If the group column is missing, or a group arm is empty.
+    Raises ``SchemaError`` if the group column is missing or an arm is empty.
     """
     if stat not in ("beta", "t", "cohen_d"):
         raise ValueError(f"stat must be 'beta'/'t'/'cohen_d', got {stat!r}")
@@ -403,7 +296,6 @@ def regional_group_contrast(
 
     covariates = list(covariates)
 
-    # Align df rows to the strength_maps subject order.
     id_col = schema.id_col
     df_idx = df.set_index(df[id_col].astype(str))
     try:
@@ -428,10 +320,7 @@ def regional_group_contrast(
     strength = strength_maps.strength[keep]
     group_indicator = group_mask(sub[group_col], case_label).astype(float)
 
-    # Complete-case analysis: drop any subject with a missing covariate value or a
-    # missing region strength — the whole subject is excluded (listwise), matching
-    # standard complete-case OLS. A single NaN otherwise fails the design SVD
-    # ("SVD did not converge") for every region.
+    # Listwise complete-case: one NaN otherwise fails the design SVD for every region.
     cov_na = (
         sub[covariates].isna().any(axis=1).to_numpy()
         if covariates
@@ -468,16 +357,13 @@ def regional_group_contrast(
             MIN_GROUP_N,
         )
 
-    # Build the design once: intercept + group + covariates.
     design_input = sub[covariates].copy() if covariates else pd.DataFrame(index=sub.index)
     design_input.insert(0, "group", group_indicator.to_numpy())
     design = build_design_matrix(design_input, list(design_input.columns), add_intercept=True)
     group_term = "group"
 
-    # Design-rank guardrail: a rank-deficient or near-saturated design (too many
-    # covariate terms for the sample) makes per-region t/p NaN while beta is still
-    # emitted via pinv. Warn once, up front, so this isn't silently buried in a
-    # column of NaNs across every region.
+    # A rank-deficient design makes t/p NaN while pinv still emits beta, so warn once
+    # up front rather than leaving a column of NaNs to be discovered later.
     n_obs, n_terms = design.shape
     rank = int(np.linalg.matrix_rank(design.to_numpy(dtype=float)))
     if rank < n_terms or (n_obs - rank) <= 1:
@@ -494,9 +380,8 @@ def regional_group_contrast(
     n_regions = strength.shape[1]
     regional_stat = np.full(n_regions, np.nan)
 
-    # Always fit the OLS group model per region to collect beta + t + p; this
-    # backs the report's significant-region highlights and the FDR correction,
-    # independent of which statistic is exported as the contrast map.
+    # Fit per region regardless of the exported statistic: the report and the FDR
+    # correction both need beta + t + p.
     beta_arr = np.full(n_regions, np.nan)
     t_arr = np.full(n_regions, np.nan)
     p_arr = np.full(n_regions, np.nan)
@@ -508,8 +393,7 @@ def regional_group_contrast(
         p_arr[r] = res.pvalues[gi]
     fdr_arr = benjamini_hochberg(p_arr)
 
-    # Always compute Cohen's d (covariate-residualised standardized mean diff) so
-    # the per-region stats table can report it alongside beta/t/p/FDR.
+    # Always computed so the stats table can report it alongside beta/t/p/FDR.
     cov_design = (
         build_design_matrix(sub[covariates], covariates, add_intercept=True) if covariates else None
     )

@@ -1,6 +1,4 @@
-"""
-Gene library utilities for accessing bundled gseapy gene sets
-"""
+"""Gene library utilities for accessing bundled gseapy gene sets"""
 
 from pathlib import Path
 
@@ -9,8 +7,7 @@ GENE_LIBRARY_DIR = Path(__file__).parent
 
 
 def get_library_path(library_name: str) -> str:
-    """
-    Get the full path to a gene library file
+    """Get the full path to a gene library file
 
     Args:
         library_name: Name of the library (e.g., 'GO_Biological_Process_2023')
@@ -21,6 +18,7 @@ def get_library_path(library_name: str) -> str:
 
     Raises:
         FileNotFoundError: If library doesn't exist
+
     """
     if not library_name.endswith(".gmt"):
         library_name += ".gmt"
@@ -37,11 +35,11 @@ def get_library_path(library_name: str) -> str:
 
 
 def list_available_libraries() -> list[str]:
-    """
-    List all available gene libraries in the package
+    """List all available gene libraries in the package
 
     Returns:
         List of library names (without .gmt extension)
+
     """
     return [f.stem for f in GENE_LIBRARY_DIR.glob("*.gmt")]
 

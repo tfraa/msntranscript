@@ -1,7 +1,5 @@
-"""
-plot_surface_with_dorsal — cortical surface maps with lateral/medial/dorsal views.
+"""plot_surface_with_dorsal — cortical surface maps with lateral/medial/dorsal views.
 Reuses imaging_transcriptomics.outputs.brain primitives.
-Phase 4, Task T4.3.
 
 Renders a regional map on the cortical surface for the hemispheres present in the
 table (both, when available), across lateral, medial and a dorsal (top-down,
@@ -43,42 +41,7 @@ def plot_surface_with_dorsal(
     diverging: bool = True,
     cmap_name: str | None = None,
 ) -> Path | None:
-    """Render a cortical map across the requested views and hemispheres.
-
-    Parameters
-    ----------
-    table
-        Region table (``id, label, hemisphere, structure, <value_column>``) —
-        the output of :func:`msnpip.atlas_align.to_region_table`.  Both
-        hemispheres are rendered if present.
-    atlas_id, value_column
-        Atlas id and the value column to colour by.
-    title
-        Main figure title (what the map is).
-    output_path
-        PNG path to write.
-    views
-        Any of ``"lateral"``, ``"medial"``, ``"dorsal"`` in display order.
-    mesh_kind
-        ``"pial"`` (anatomical) or ``"inflated"`` (smoothed) surface.
-    subtitle
-        Optional second line (provenance: atlas, surface, measure).
-    diverging
-        ``True`` (default): symmetric diverging map centred at 0 (``RdBu_r``),
-        for signed contrast statistics.  ``False``: sequential map spanning the
-        data range (``viridis``), for non-negative quantities like node
-        strength.  Non-significant regions passed as NaN render at the diverging
-        centre colour (neutral white), which is how the significant-only map is
-        drawn.
-    cmap_name
-        Override the colormap name; defaults to ``RdBu_r`` (diverging) or
-        ``viridis`` (sequential).
-
-    Returns
-    -------
-    Path | None
-        The written PNG path, or ``None`` if surface assets are unavailable.
-    """
+    """Render a cortical map across the requested views and hemispheres."""
     configure_theme()
     views = tuple(views)
     unknown = [v for v in views if v not in ("lateral", "medial", "dorsal")]

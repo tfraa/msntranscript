@@ -1,9 +1,10 @@
 # Adding a new atlas to msnpip
 
 msnpip delegates all atlas knowledge to the imaging-transcriptomics engine, so adding an
-atlas is mostly an *engine* and *data* task — the msnpip code is atlas-agnostic. Switching
-`--atlas dk → --atlas <other>` requires **no code change**, provided the four prerequisites
-below are met.
+atlas is mostly an *engine* and *data* task — the msnpip code is atlas-agnostic. Pointing
+`EngineConfig.atlas` at another atlas (via a YAML `--config`; there is no `--atlas` flag,
+since the shipped pipeline is locked to DK) requires **no code change**, provided the four
+prerequisites below are met.
 
 ## Prerequisites
 
@@ -42,7 +43,8 @@ below are met.
 
 ## Region scope
 
-`--regions cort` uses cortex only (the clean match for `aparc.stats` input). `cort+sub` adds
+`EngineConfig.regions = "cort"` uses cortex only (the clean match for `aparc.stats` input),
+and is what the CLI is locked to. `cort+sub` adds
 the engine's packaged subcortical regions; only use it if your features include subcortical
 values, and note (per the methods doc) that subcortical rows use grouped-shuffle nulls while
 cortex uses the surface spin.

@@ -158,8 +158,9 @@ README
 *.png                       (engine-generated plots)
 ```
 
-msnpip places each engine call in its own subdirectory:
-`<output>/03_transcriptomics/<case>_vs_<ctrl>/<method>/`
+msnpip stages each engine call in its own subdirectory of a temporary `.engine/` folder,
+`<case>_vs_<ctrl>/<method>/`, curates the tables listed in [outputs.md](outputs.md), then
+deletes the staging tree.
 
 ---
 
@@ -202,7 +203,7 @@ plotting.plot_gsea_dotplot(...)
 plotting.plot_ora_heatmap(...)
 plotting.save_result_plots(result, output_dir) -> list[Path]
 
-# Low-level surface primitives (used by viz/surface_extra.py for dorsal view)
+# Low-level surface primitives (used by viz/surface_extra.py)
 from imaging_transcriptomics.outputs.brain import (
     surface_view,
     load_surface_mesh,
@@ -232,8 +233,7 @@ All plotting functions accept a **region table** with columns
 | Demographic correlation (Spearman, within-group) | `stats/correlation.py` |
 | Atlas label alignment | `atlas_align.py` |
 | Violin-by-group strength plot | `viz/distributions.py` |
-| Dorsal surface view | `viz/surface_extra.py` |
+| Cortical surface maps | `viz/surface_extra.py` |
 | Demographic scatter plot | `viz/scatter.py` |
 | Aggregated PDF report | `report/builder.py` |
-| Output tree + sha256 manifest | `io/writers.py` |
 | Stage machine + checkpoint/resume | `pipeline.py` |

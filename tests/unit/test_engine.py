@@ -415,3 +415,33 @@ class TestEngineHemisphere:
 
         assert _engine_hemisphere(EngineConfig(hemisphere="left")) == "left"
         assert _engine_hemisphere(EngineConfig(hemisphere="both")) == "both"
+
+
+class TestEnrichmentPlanLogging:
+    """The plan log must never name a backend that was not requested.
+
+    A line reading "surrogates used by the spin-null enrichment backends:
+    ensemble=20000" during an ORA-only run reads as though GCEA is running, and
+    cost a real 20k-surrogate run to be killed by hand.
+    """
+
+    def _plan(self, caplog, backends):
+        from msnpip.engine import _log_enrichment_plan
+
+        caplog.clear()
+        with caplog.at_level(logging.INFO, logger="msnpip.engine"):
+            _log_enrichment_plan("pls", backends, ("lake",), 20000)
+        return caplog.text
+
+    def test_ora_only_never_mentions_ensemble_or_gsea_as_running(self, caplog):
+        text = self._plan(caplog, ["ora"])
+        assert "surrogates used by the spin-null" not in text
+        # The "not requested" warning may name them; the surrogate line may not.
+        for line in text.splitlines():
+            if "surrogates" in line:
+                assert "ensemble" not in line and "gsea" not in line
+
+    def test_requested_spin_backends_are_named_with_the_count(self, caplog):
+        text = self._plan(caplog, ["ensemble", "ora"])
+        assert "surrogates used by the spin-null enrichment backend(s) ensemble: 20000" in text
+        assert "gsea" not in text.split("surrogates used by")[1].split("\n")[0]

@@ -1,7 +1,4 @@
-"""
-plot_strength_violin — violin + box + jitter of node strength per group.
-Phase 4, Task T4.2.
-"""
+"""plot_strength_violin — violin + box + jitter of node strength per group."""
 
 from __future__ import annotations
 
@@ -60,31 +57,11 @@ def plot_strength_violin(
 ):
     """Violin + box + jittered points of node strength, grouped by diagnosis.
 
-    Parameters
-    ----------
-    strength_maps
-        :class:`msnpip.msn.construct.StrengthMaps`.
-    df, schema
-        Cohort DataFrame and column schema (rows aligned by ``schema.id_col``).
-    region
-        Region label (``"lh_bankssts"``) to plot; ``None`` → global strength.
-    group_col
-        Group column; defaults to ``schema.group_col``.
-    group_labels
-        Explicit group order/subset; defaults to first-seen order in *df*.
-    test
-        Two-group test for the annotation: ``"mannwhitney"`` (default) or ``"ttest"``.
-    ax
-        Existing axes to draw into; a new figure is created if ``None``.
-
-    Returns
-    -------
-    matplotlib.figure.Figure
-
     Raises
     ------
     ValueError
         If the group column is missing or a requested group is empty.
+
     """
     configure_theme()
 

@@ -46,7 +46,7 @@ msnpip full \
   --group-col group --case PATIENT --control CONTROL \
   --predictors age sex tiv site \
   --correlate-with age \
-  --atlas dk --hemisphere left --regions cort \
+  --hemisphere left \
   --method pls --ncomp 1 --n-perm 1000 \
   --enrichment ensemble \
   --geneset GO_Biological_Process_2025 \
@@ -56,30 +56,40 @@ msnpip full \
 Merged-CSV equivalent: replace `--input/--demographics` with `--dataframe merged.csv`.
 European locale CSV? add `--sep ';' --decimal ','` (auto-detection usually handles it).
 
+The atlas is fixed to DK and the regions to cortex, so there are no `--atlas` or
+`--regions` flags.
+
 ---
 
 ## 2. Results-sanity checklist
 
 After the dev run, check these — most data problems show up here:
 
-- [ ] **Merge / match rate** — `00_inputs/merge_report.json`: `n_merged` is what you
-      expect. A low count means IDs didn't match (see §4).
-- [ ] **Dropped subjects** — `01_msn/dropped_subjects.json` is empty or only the
-      subjects you know are incomplete (msnpip never imputes).
-- [ ] **Group sizes** — run log / console: no "Small group(s)" warning, or you accept
-      it. With n<10 per arm, prefer `--contrast-stat cohen_d`.
-- [ ] **Schema** — `00_inputs/schema.json`: `id_col`, `group_col`, covariates, and
-      `n_feature_cols` (≈ 340 for DK both-hemisphere × 5 metrics) are correct.
-- [ ] **Spatial null actually engaged** — in any
-      `03_transcriptomics/<contrast>/<method>/metadata.json`, `null_method` is
-      `vasa` (**not** `random`). If the surface assets were missing the run would
-      have hard-failed with `MsnpipSurfaceNullError`, so a finished run already
-      guarantees this — but verify.
-- [ ] **Report** — `05_report/Report.pdf` opens and contains the violin, the
-      surface map (lateral/medial/dorsal), the demographic scatter, and the engine
-      PLS/enrichment plots.
-- [ ] **Provenance** — `manifest.json` records the engine commit, seed, and resolved
-      config; `resolved_config.yaml` reflects what you intended.
+- [ ] **Merge / match rate** — the console log reports how many subjects merged.
+      A low count means IDs didn't match (see §4).
+- [ ] **Dropped subjects** — the MSN stage logs every subject it drops for missing
+      features. msnpip never imputes, so this list should be only the subjects you
+      already know are incomplete.
+- [ ] **Group sizes** — run log: no "Small group(s)" warning, or you accept it.
+      With n<10 per arm, prefer `--contrast-stat cohen_d`.
+- [ ] **Schema** — the log reports the detected `id_col`, `group_col` and covariates,
+      and the feature-column count (≈340 for DK both-hemisphere × 5 metrics). Force a
+      role with `--id-col` / `--group-col` if detection picked the wrong column.
+- [ ] **Spatial null actually engaged** — every curated `*_pls.csv`, `*_corr.csv` and
+      `*_enrichment.csv` carries a `null_method` column with the null that was
+      *actually resolved*, and the report cover states it. It must read `vasa`, not
+      `random`. The default is fallback-with-warning, so a finished run does **not**
+      by itself guarantee a real spin — check the column.
+- [ ] **Report** — `report.pdf` opens and contains the violins, the surface maps
+      (2×2 lateral/medial per hemisphere), the demographic scatter, and the
+      enrichment plots.
+- [ ] **Contrast map** — `case_control_difference_maps.csv` and
+      `<tag>_region_stats.csv` have one row per region with finite `beta`/`t`. A whole
+      column of NaN `t` means a rank-deficient design (too many covariates); the run
+      warns about this up front.
+
+Outputs are a flat, curated set — see [outputs.md](outputs.md) for the
+column-by-column reference. There is no numbered stage tree and no `manifest.json`.
 
 ---
 
@@ -94,13 +104,13 @@ msnpip full \
   --output runs/pub_001/ \
   --group-col group --case PATIENT --control CONTROL \
   --predictors age sex tiv site \
-  --exclude-covariate site \
   --correlate-with age --corr-scope global \
-  --atlas dk --hemisphere left --regions cort \
+  --hemisphere left \
   --msn-similarity distance \
   --method pls --ncomp 2 --n-perm 10000 \
   --enrichment ensemble gsea ora \
-  --geneset lake pooled GO_Biological_Process_2025 KEGG_2021_Human DisGeNET \
+  --geneset lake pooled GO_Biological_Process_2025 KEGG_2021_H DisGeNET \
+  --null-method vasa \
   --seed 1234 -v
 ```
 
@@ -111,8 +121,12 @@ Useful flags for the re-analysis:
 - `--ncomp 2` — retain PLS1 **and** PLS2 (each gets its own spin-tested component p and gene tables).
 - `--enrichment ensemble gsea ora` — `ensemble` (GCEA) is the primary spin-null test, `gsea` a
   spin-null cross-check, `ora` the template over-representation test (candidate mechanisms only).
+  Note this flag *replaces* the default set rather than adding to it.
 - `--pool-cases` — with several `--contrast X 0` flags, also runs a supplementary pooled
   `{X…}_vs_0` contrast alongside the per-group ones (which stay primary).
+- `--geneset-min-size` / `--geneset-max-size` — category-size window for the spin-null
+  backends. Pre-specify it; ORA is deliberately left unfiltered.
+- To drop a covariate, run again without it in `--predictors`; there is no exclude flag.
 - Node strength is fixed to the **mean** of a region's edges (Morgan/Seidlitz).
 
 Reproducibility: the same `--seed` gives byte-identical msnpip-side tables. Pin the
@@ -125,11 +139,13 @@ the CLI flags you also pass override it — everything else comes from the file.
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| `IDMatchError` / very low `n_merged` | IDs differ between FreeSurfer dirs and CSV | Make them identical (whitespace only is stripped); check leading zeros |
+| `IDMatchError` / very low merged count | IDs differ between FreeSurfer dirs and CSV | Make them identical (whitespace only is stripped); check leading zeros |
 | `SchemaError: ... non-numeric ... feature column(s)` | locale/decimal parse (commas) | pass `--sep`/`--decimal`, or fix the CSV |
-| `MsnpipSurfaceNullError` | neuromaps surface assets missing | `python -c "import neuromaps; neuromaps.datasets.fetch_fsaverage()"`, or use the Docker image (assets baked in) |
-| `ConfigurationError: Unknown atlas` | atlas not in the engine | `msnpip list-atlases` for valid ids |
+| `null_method` reads `random` | neuromaps surface assets missing, so the spin fell back | `python -c "import neuromaps; neuromaps.datasets.fetch_fsaverage()"`, or use the Docker image (assets baked in) |
+| `MsnpipSurfaceNullError` | as above, with fallback disabled | same fix; this is the hard-fail path |
+| `ConfigurationError: Unknown atlas` | engine atlas table unavailable | `msnpip list-atlases` for valid ids |
 | Small-group warning | <10 subjects per arm | accept with caution; prefer `--contrast-stat cohen_d` |
+| Rank-deficient design warning, NaN `t` | more covariate terms than the sample supports | drop covariates from `--predictors` |
 
 ---
 

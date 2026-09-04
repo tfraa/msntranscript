@@ -19,6 +19,7 @@ out/
   <tag>_region_stats.csv
   <tag>_pls.csv
   <tag>_pls_summary.csv
+  <tag>_corr.csv                       # only when --method corr ran
   <tag>_enrichment.csv
   report.pdf
   plots/
@@ -39,15 +40,17 @@ out/
 | File | One row per | Key columns |
 |---|---|---|
 | `merged_dataset.csv` | subject | id, group, covariates, and the FreeSurfer region×metric columns that entered the MSN |
-| `strength_maps.csv` | subject | one column per region — that region's node strength (sum of its morphometric-similarity edges; dimensionless) |
+| `strength_maps.csv` | subject | one column per region — that region's node strength (mean of its morphometric-similarity edges; dimensionless) |
 | `mean_msn_per_group.csv` | region | `region`, plus `mean_strength_<group>` for each group |
 | `case_control_difference_maps.csv` | region | `region`, plus one column per contrast holding the regional contrast statistic (`beta`/`t`/`cohen_d`, per config) |
 | `<tag>_region_stats.csv` | region | `region`, `beta`, `t`, `cohen_d`, `p`, `fdr` — the per-region OLS group contrast |
 | `<tag>_pls.csv` | gene | `component`, `gene`, PLS `zscore`/`weight`, `p`, `fdr` — gene loadings on the contrast map |
 | `<tag>_pls_summary.csv` | PLS component | explained variance, cumulative variance, and the spatial-null p-value per component |
-| `<tag>_enrichment.csv` | gene-set term | `method` (`pls`/`corr`), `enrichment` (backend: `ensemble`, `gsea`, `gseafrozen`, `oraz`, `orap`, `oratopn`), `geneset`, `Term`, effect (`nes`/`es` for gsea, `z_score` for ensemble, `odds_ratio` for the ORA backends), `p_val`, `fdr` (BH per backend). ORA rows additionally carry `ora_tail` and `tail_size` — the selection rule and how many genes it picked. |
+| `<tag>_pls.csv`, `<tag>_corr.csv`, `<tag>_enrichment.csv` | — | all carry a `null_method` column recording the spatial null **actually resolved** for that run, so a degraded fallback is visible without reading the log |
+| `<tag>_corr.csv` | gene | `gene`, `score`, `p`, `fdr`, `maxT` — the mass-univariate map↔gene correlation ranking |
+| `<tag>_enrichment.csv` | gene-set term | `method` (`pls`/`corr`), `enrichment` (backend: `ensemble`, `gsea`, `gseafrozen`, `ora`), `geneset`, `Term`, effect (`nes`/`es` for gsea, `z_score` for ensemble, `odds_ratio` for ora), `p_val`, `fdr` (BH per backend). ORA rows also carry `direction` (`positive`/`negative`), the sign of the ranking statistic that selected the gene tail. |
 
-Node strength is **dimensionless** (a sum of similarity ratios in (0, 1]), so the
+Node strength is **dimensionless** (a mean of similarity ratios in (0, 1]), so the
 strength and difference maps carry no physical unit.
 
 ## Plots (`plots/`)
