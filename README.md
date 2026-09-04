@@ -39,7 +39,6 @@ LOAD → VALIDATE → MSN → CONTRAST → (CORRELATION) → TRANSCRIPTOMICS →
   default a failed spin falls back with a warning; the null actually resolved is recorded in a
   `null_method` column on every curated table and stated on the report cover. Set
   `allow_null_fallback=False` to make a failed spin an error instead.
-- **No pickle anywhere** — outputs are CSV / PNG / PDF.
 
 ---
 
@@ -93,8 +92,7 @@ msnpip full \
     --method pls --ncomp 1 --n-perm 1000 --enrichment ensemble --seed 1234
 ```
 
-The atlas is locked to DK and the region scope to cortex, so there are no `--atlas` or
-`--regions` flags. To drop a covariate, run again without it in `--predictors`.
+The atlas is locked to DK and the region scope to cortex.
 
 ### Python API
 
@@ -141,9 +139,7 @@ cortical regions per hemisphere.
 
 ### Demographics / merged CSV
 
-Roles are auto-detected by **token** matching, so `subject_id` is found while region columns like
-`lh_middletemporal_ThickAvg` are never mistaken for an id. `--id-col` and `--group-col` override
-detection.
+Column roles are auto-detected; `--id-col` and `--group-col` override the detection.
 
 | Role | Example column names |
 |---|---|
@@ -163,7 +159,7 @@ Feature columns follow `{hemisphere}_{region}_{metric}`.
 
 A flat, curated set of CSVs, a `plots/` folder and one `report.pdf` (`<tag>` is
 `<case>_vs_<ctrl>`). The verbose engine bundle is staged in a temporary `.engine/` folder,
-curated into these files, then deleted — no numbered stage tree, no manifest, no pickle.
+curated into these files, then deleted.
 
 ```
 out/
@@ -186,7 +182,7 @@ See [docs/outputs.md](docs/outputs.md) for a column-by-column reference and
 
 ## Reading the results
 
-The output is deliberately layered, and the layers do not carry equal weight.
+The layers do not carry equal weight.
 
 - **The primary inference is the component-level spin test.** A significant PLS component means
   the transcriptomic axis explains the regional map beyond spatial autocorrelation. Report this.
@@ -228,14 +224,11 @@ The image bakes the neuromaps fsaverage cache so cortical plots and the spin nul
 
 | Item | Value |
 |---|---|
-| Null model | `vasa` surface spin; fallback-with-warning by default (`allow_null_fallback=False` to make it an error) |
+| Null model | `vasa` surface spin, falling back with a warning |
 | MSN | 5 features, within-subject modified z-score, distance kernel `1/(1+d/n)` by default, **mean** node strength, both hemispheres |
 | Contrast statistic | `beta` (default), `t`, or `cohen_d` |
 | Enrichment | `ensemble` (primary) + corrected `gsea` (cross-check) + `ora` (candidate mechanisms) |
-| Gene sets | LAKE, pooled, GO_BP_2025, KEGG_2021_H, DisGeNET — bundled as `.gmt`, so enrichment runs offline |
-| ID matching | exact after whitespace strip |
-| Persistence | no pickle — CSV / PNG / PDF |
-| Site covariate | always one-hot |
+| Gene sets | LAKE, pooled, GO_BP_2025, KEGG_2021_H, DisGeNET |
 | Defaults | atlas `dk`, engine hemisphere `left`, regions `cort`, n-perm 10,000 |
 
 ---

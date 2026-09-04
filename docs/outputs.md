@@ -1,10 +1,8 @@
 # Output files
 
-`msnpip` writes a deliberately small, curated output set — one flat folder of
-CSVs, a `plots/` folder of PNGs, and a single `report.pdf`. The verbose engine
-bundle is written to a temporary `.engine/` staging directory, curated into the
-files below, and then **deleted**; there is no `manifest.json`, no pickle, and no
-numbered stage tree.
+`msnpip` writes one flat folder of CSVs, a `plots/` folder of PNGs, and a single
+`report.pdf`. The verbose engine bundle is written to a temporary `.engine/`
+staging directory, curated into the files below, and then deleted.
 
 Throughout, `<tag>` is a contrast identifier of the form `<case>_vs_<ctrl>`
 (e.g. `FTD_vs_HC`), and `<group>` / `<var>` are a group label and a correlation

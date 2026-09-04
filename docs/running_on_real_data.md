@@ -88,8 +88,7 @@ After the dev run, check these — most data problems show up here:
       column of NaN `t` means a rank-deficient design (too many covariates); the run
       warns about this up front.
 
-Outputs are a flat, curated set — see [outputs.md](outputs.md) for the
-column-by-column reference. There is no numbered stage tree and no `manifest.json`.
+See [outputs.md](outputs.md) for the column-by-column reference.
 
 ---
 
