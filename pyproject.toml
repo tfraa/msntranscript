@@ -42,7 +42,11 @@ dev = [
     "pre-commit>=3.7",
     "build>=1.2",
     "types-PyYAML",
-    "pandas-stubs",
+    # Stubs must track the pinned pandas major. pandas-stubs 3.x describes the
+    # pandas 3 API and, against our pandas 2, mistypes astype(str) as
+    # Series[bool] — three false mypy errors that only ever showed up in CI,
+    # since pandas-stubs 3.x needs Python >=3.11 and can't install on 3.10.
+    "pandas-stubs<3",
 ]
 
 [project.scripts]
