@@ -141,7 +141,7 @@ def read_freesurfer_subjects(
 
         for hemi in ("lh", "rh"):
             # Stats files are usually in <subj>/stats/, but FreeSurfer exports
-            # sometimes place them directly in <subj>/ — accept both (issue 3).
+            # sometimes place them directly in <subj>/ — accept both.
             stats_path = subj_dir / "stats" / f"{hemi}.aparc.stats"
             if not stats_path.exists():
                 alt = subj_dir / f"{hemi}.aparc.stats"

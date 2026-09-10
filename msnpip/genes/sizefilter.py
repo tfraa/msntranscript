@@ -1,12 +1,10 @@
 """Category-size filtering of a gene set.
 
 Terms whose size — counted after intersecting with the ranked gene universe — falls
-outside ``[min_size, max_size]`` are dropped by materialising a filtered ``.gmt``, so the
-tested term set is auditable rather than implied by a config value.  Off by default
-(``min_size=1``, ``max_size=None``) so existing runs stay bit-reproducible.
+outside ``[min_size, max_size]`` are dropped, and the kept terms are written to a new
+``.gmt``.  Off by default (``min_size=1``, ``max_size=None``).
 
-NOTE: this feeds the spin-null backends only.  ORA is deliberately run on the unfiltered
-set, matching the pinned toolbox, so the two do not share ``m``.
+Applies to the spin-null backends only; ORA is run on the unfiltered set.
 """
 
 from __future__ import annotations

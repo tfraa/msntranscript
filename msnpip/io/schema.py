@@ -19,7 +19,7 @@ def _tokenize(name: str) -> list[str]:
 
 
 def detect_id_column(df: pd.DataFrame, override: str | None = None) -> str:
-    """Best-guess the subject-ID column name (issue 2: names differ across files).
+    """Best-guess the subject-ID column name, which differs between files.
 
     Returns *override* if given and present; otherwise the first column matching
     an id alias by token; otherwise the first column.

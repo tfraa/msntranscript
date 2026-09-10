@@ -80,7 +80,7 @@ def plot_strength_violin(
         raise ValueError(f"group column {gcol!r} not found")
 
     aligned = df.set_index(df[schema.id_col].astype(str)).loc[strength_maps.subject_ids]
-    # Normalize group values so 1 / 1.0 / "1" match the requested labels (issue 5).
+    # Normalize group values so 1 / 1.0 / "1" match the requested labels.
     groups = aligned[gcol].map(normalize_group_value).to_numpy()
 
     order = (

@@ -401,8 +401,7 @@ class ReportBuilder:
                 fig.text(0.34, y - i * 0.026, line, fontsize=10.5, color=_INK, va="top")
             y -= 0.026 * max(1, len(self._wrap(value, width=58))) + 0.012
 
-        # Loud warning if the spatial null degraded to a non-spin shuffle, which
-        # invalidates the spatial-specificity of the transcriptomics results.
+        # Cover banner shown when the spatial null resolved to a non-spin shuffle.
         resolved = self._resolved_nulls(ctx)
         surface_nulls = {"vasa", "alexander_bloch", "moran"}
         used = {n.strip() for n in resolved.split(",") if n.strip()}
@@ -1025,8 +1024,8 @@ class ReportBuilder:
                 gkey = gkey if isinstance(gkey, tuple) else (gkey,)
                 backend = str(gkey[0]) if "enrichment" in group_cols else ""
                 geneset = str(gkey[-1]) if "geneset" in group_cols else "gene set"
-                # FDR denominator = number of categories tested for this backend /
-                # gene set (BH-corrected over these), captured before top-N trimming.
+                # FDR denominator: categories tested for this backend / gene set,
+                # counted before top-N trimming.
                 n_tested = len(sub)
                 # Effect-score column (NES for GSEA, z_score for ensemble).
                 score_col = next(
@@ -1068,10 +1067,7 @@ class ReportBuilder:
                 )
                 emitted = True
                 suffix = f" ({backend})" if backend else ""
-                # Backend-specific role + effect description. Two-tier framing:
-                # GCEA (ensemble) is the PRIMARY spin-null test; GSEA is a spin-null
-                # cross-check; ORA is the template over-representation test, reported
-                # only as candidate mechanisms (not spatial-null-corrected).
+                # Per-backend role and effect-column description shown under the table.
                 effect = {
                     "ensemble": (
                         "PRIMARY (spatial-spin null). z_score is the enrichment effect "

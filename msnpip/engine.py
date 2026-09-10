@@ -6,13 +6,9 @@ writes its own bundle.  msnpip validates the aligned input, dispatches the engin
 spatial-null policy.  Methods: ``pls`` (multivariate) and ``corr`` (mass-univariate);
 both use the same spatial null and the same corrected enrichment backends.
 
-Two engine defects are worked around here, both deliberately:
-
-* DK ships only as a FreeSurfer ``.annot``, which neuromaps' spin-null loader cannot
-  read, so ``vasa``/``alexander_bloch`` fail as shipped — hence the ``load_gifti`` shim.
-* The engine's own GSEA freezes gene positions at the observed ranking and is bypassed;
-  if re-enabled it is labelled ``gseafrozen`` so it cannot be mistaken for the corrected
-  table.
+Two shims are installed before the engine runs: :func:`enable_annot_surface_nulls`
+lets the spin-null loader read FreeSurfer ``.annot`` parcellations, and
+:func:`enable_gsea_compat` adapts the engine's GSEA to gseapy 1.x output columns.
 """
 
 from __future__ import annotations
@@ -42,9 +38,9 @@ _ANNOT_SHIM_DONE = False
 def enable_annot_surface_nulls() -> None:
     """Make neuromaps' spin-null loader read FreeSurfer ``.annot`` parcellations.
 
-    Without this the spin nulls fail for DK, which ships no GIFTI.  Converts to an
-    in-memory GIFTI label image with a label table, so ``PARCIGNORE`` drops the
-    medial wall.  Idempotent; a no-op if neuromaps/nibabel are missing.
+    Converts the ``.annot`` to an in-memory GIFTI label image with a label table, so
+    ``PARCIGNORE`` drops the medial wall.  Idempotent; a no-op if neuromaps or
+    nibabel are missing.
     """
     global _ANNOT_SHIM_DONE
     if _ANNOT_SHIM_DONE:
@@ -92,11 +88,10 @@ _GSEA_SHIM_DONE = False
 
 
 def enable_gsea_compat() -> None:
-    """Make the engine's GSEA tolerate gseapy >=1.x preranked output columns.
+    """Adapt the engine's GSEA to gseapy >=1.x preranked output columns.
 
-    The engine reads pre-1.0 column names that gseapy 1.x renamed, so its lookup
-    raises.  Those columns are output metadata only — the statistics come from the
-    engine's own nulls — so missing ones return a benign default.  Idempotent.
+    The renamed size and gene-list columns are output metadata only, so a missing
+    one yields a benign default (NaN, or an empty string).  Idempotent.
     """
     global _GSEA_SHIM_DONE
     if _GSEA_SHIM_DONE:
@@ -139,7 +134,8 @@ def _is_null_error(exc: BaseException) -> bool:
 def _primary_enrichment(enrichment_methods: tuple[str, ...]) -> str:
     """The enrichment family passed as ``enrichment_method=`` to the engine.
 
-    GSEA is skipped: msnpip runs its own corrected backend instead.
+    GSEA is excluded — it runs separately via :mod:`msnpip.genes.gsea_mainstyle`.
+    Falls back to ``"none"`` when GSEA is the only requested family.
     """
     for method in enrichment_methods:
         if method in ("ensemble", "ora", "none"):
@@ -184,8 +180,7 @@ def _log_enrichment_plan(
         ", ".join(backends) if backends else "NONE",
         ", ".join(_geneset_label(g) for g in gene_sets),
     )
-    # Only name backends that were actually requested: a count next to a backend that
-    # is not running reads as though it is, and has cost a real run.
+    # Only name the spin-null backends that were actually requested.
     spin_null = [m for m in ("ensemble", "gsea") if m in backends]
     if n_permutations is not None and spin_null:
         # The empirical p floor is 1/(n+1) and a reduced count is invisible downstream.
@@ -243,19 +238,17 @@ def _resolve_geneset(gene_set: str) -> str:
     return s
 
 
-#: Label for the engine's frozen-rank GSEA. Curation derives the ``enrichment`` column
-#: from this prefix, so a distinct one is what keeps the invalid table separate.
+#: Backend label for the engine's frozen-rank GSEA; curation derives the
+#: ``enrichment`` column from this filename prefix.
 _FROZEN_GSEA_LABEL = "gseafrozen"
 
 
 def _run_engine_gsea(runner, gene_set, outdir: Path, cfg: EngineConfig, *, kind: str) -> None:
-    """Run the pinned engine's own GSEA and file it under ``gseafrozen_*``.
+    """Run the engine's own GSEA, filed under ``gseafrozen_*``.
 
-    WARNING: this backend is not valid inference — it scores every surrogate at the
-    observed gene positions, so the hit order the enrichment score is built on never
-    varies.  Exposed only to reproduce published v2 behaviour.  It also applies
-    gseapy's own size window and reports a NES-ratio q-value rather than BH, so it is
-    not a clean one-variable comparison against the corrected backend.
+    Surrogates are scored at the observed gene positions, so the hit order underlying
+    the enrichment score is the same in every surrogate.  Applies gseapy's own size
+    window and reports a NES-ratio q-value rather than BH.
     """
     import shutil
     import tempfile
@@ -306,16 +299,14 @@ def _run_engine_gsea(runner, gene_set, outdir: Path, cfg: EngineConfig, *, kind:
 
 
 def _run_toolbox_ora(runner, gene_set, outdir: Path, cfg: EngineConfig, *, kind: str) -> None:
-    """Run the pinned engine's own over-representation analysis.
+    """Run the engine's own over-representation analysis.
 
-    Tail is ``p <= ora_p_threshold`` on the uncorrected spin p, split by sign, then a
-    hypergeometric test per term with BH within direction.
+    Tail is ``p <= ora_p_threshold`` on the uncorrected spin p, split by the sign of
+    the ranking statistic; each term then gets a hypergeometric test with BH within
+    direction.  The term test uses the random-gene null.  Terms with zero overlap
+    with the tail are dropped before correction, so ``m`` is data-dependent.
 
-    WARNING: the term test uses the random-gene null, so ORA is never spatial-null
-    inference.  The toolbox also drops zero-overlap terms before correcting, so ``m``
-    is data-dependent.
-
-    The toolbox writes one file per direction with no direction column; they are
+    The engine writes one file per direction with no direction column; they are
     staged, tagged and merged into the single table curation consumes.
     """
     import shutil
@@ -377,9 +368,9 @@ def _gene_universe(res_obj):
 def _engine_hemisphere(cfg: EngineConfig) -> str:
     """The hemisphere the *engine* is told about.
 
-    WARNING: ``"right"`` is a homotopic relabel of the phenotype, not a
-    right-hemisphere transcriptome.  The ``rh_*`` values are already in LEFT label
-    order, so the engine must run left and pair them with its left expression matrix.
+    ``"right"`` relabels the phenotype homotopically: the ``rh_*`` values are already
+    in LEFT label order, so the engine runs left and pairs them with its left
+    expression matrix.
     """
     return "left" if cfg.hemisphere == "right" else cfg.hemisphere
 
@@ -387,9 +378,9 @@ def _engine_hemisphere(cfg: EngineConfig) -> str:
 def _size_filter_geneset(gene_set: str, cfg: EngineConfig, gene_universe, outdir: Path, label: str):
     """Return the gene-set resource the backends should test, size-filtered.
 
-    Resolution happens here because a config name may be an engine alias, not a path.
-    With no window the original argument passes through untouched.  Resolution
-    failures are never fatal — the unfiltered set is used.
+    Resolves the config name, which may be an engine alias rather than a path.  With
+    no window set the original argument passes through untouched, and a resolution
+    failure falls back to the unfiltered set.
     """
     from imaging_transcriptomics.genesets import resolve_geneset_resource
 
@@ -449,9 +440,8 @@ def _run_pls_fit_once_enrich_many(
 ):
     """Fit PLS once, then run enrichment for every configured gene set.
 
-    ``run_pls`` couples PLS and enrichment for one gene set and discards the fit, so
-    the engine's workflow primitives are driven directly to avoid re-running the
-    spatial null per gene set.  Tables land in ``out_dir/enrichment/<label>/``.
+    Drives the engine's workflow primitives directly so the spatial null is generated
+    once rather than per gene set.  Tables land in ``out_dir/enrichment/<label>/``.
     """
     enable_annot_surface_nulls()
     enable_gsea_compat()
@@ -562,8 +552,7 @@ def _run_pls_fit_once_enrich_many(
         unfiltered = _resolve_geneset(gene_set)  # bundled .gmt path when available
         sub = enr_root / label
         sub.mkdir(parents=True, exist_ok=True)
-        # One filter for the two spin-null backends, so they share m. ORA deliberately
-        # keeps the UNFILTERED set, matching the toolbox's own implementation.
+        # The size filter applies to the spin-null backends; ORA gets the unfiltered set.
         resolved = _size_filter_geneset(unfiltered, cfg, gene_universe, sub, label)
         for backend in backends:
             try:
@@ -577,7 +566,7 @@ def _run_pls_fit_once_enrich_many(
                         geneset_organism=cfg.geneset_organism,
                     )
                 elif backend == "gsea":
-                    # Corrected GSEA: per-surrogate re-ranked null.
+                    # Per-surrogate re-ranked GSEA.
                     if cfg.gsea_backend in ("corrected", "both"):
                         run_corrected_gsea(
                             res_obj,
@@ -633,8 +622,7 @@ def _run_corr_fit_once_enrich_many(
     """Fit the correlation ranking once, then enrich every configured gene set.
 
     Mirrors :func:`_run_pls_fit_once_enrich_many` for the mass-univariate backend,
-    using the engine's ``CorrAnalysis`` and the same spatial null.  The engine's own
-    correlation GSEA is bypassed: it freezes gene positions like the PLS one.
+    using the engine's ``CorrAnalysis`` and the same spatial null.
     """
     enable_annot_surface_nulls()
     enable_gsea_compat()

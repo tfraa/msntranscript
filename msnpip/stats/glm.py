@@ -23,7 +23,7 @@ MIN_GROUP_N = 10
 
 
 def normalize_group_value(value) -> str:
-    """Canonical string for a group code so 1, 1.0 and '1' all match (issue 5)."""
+    """Canonical string for a group code so 1, 1.0 and '1' all match."""
     if value is None or (isinstance(value, float) and value != value):  # None / NaN
         return ""
     if isinstance(value, float) and value.is_integer():
@@ -52,8 +52,8 @@ def group_mask(series: pd.Series, label) -> pd.Series:
 def benjamini_hochberg(pvalues) -> np.ndarray:
     """Benjamini-Hochberg FDR-adjusted p-values.
 
-    NaNs are excluded from the ranking and returned as NaN, so a partially estimable
-    map is still corrected over its finite entries.  Output is clipped and monotone.
+    NaNs are excluded from the ranking and returned as NaN.  Output is clipped to
+    ``[0, 1]`` and enforced monotone.
     """
     p = np.asarray(pvalues, dtype=float)
     q = np.full(p.shape, np.nan)
@@ -362,8 +362,7 @@ def regional_group_contrast(
     design = build_design_matrix(design_input, list(design_input.columns), add_intercept=True)
     group_term = "group"
 
-    # A rank-deficient design makes t/p NaN while pinv still emits beta, so warn once
-    # up front rather than leaving a column of NaNs to be discovered later.
+    # A rank-deficient design makes t/p NaN while pinv still emits beta.
     n_obs, n_terms = design.shape
     rank = int(np.linalg.matrix_rank(design.to_numpy(dtype=float)))
     if rank < n_terms or (n_obs - rank) <= 1:
@@ -380,7 +379,7 @@ def regional_group_contrast(
     n_regions = strength.shape[1]
     regional_stat = np.full(n_regions, np.nan)
 
-    # Fit per region regardless of the exported statistic: the report and the FDR
+    # Fit per region regardless of the exported statistic; the report and the FDR
     # correction both need beta + t + p.
     beta_arr = np.full(n_regions, np.nan)
     t_arr = np.full(n_regions, np.nan)

@@ -1,11 +1,9 @@
 """Preranked GSEA on the PLS spin null, with each surrogate re-ranked by its own weights.
 
-The pinned engine's ``PLSGenes.gsea`` scores every surrogate at the gene hit-positions
-of the *observed* ranking.  Enrichment score is a rank-position statistic, so that null
-is miscalibrated (pure-H0 false-positive rate ~0.7).  Re-ranking per surrogate is the
-only correction here: the statistic and the nominal p-value are the engine's own, so
-``p_val`` matches imaging-transcriptomics v2 exactly.  That p is one-sided per observed
-sign and therefore ~2x anti-conservative; ``fdr`` is BH across the categories tested.
+The enrichment-score statistic and the nominal p-value are the engine's own
+(``gsea_utils``), so ``p_val`` matches imaging-transcriptomics v2; the null differs in
+that each surrogate is ranked by its own weights before scoring.  ``p_val`` is
+one-sided per observed sign; ``fdr`` is BH across the categories tested.
 """
 
 from __future__ import annotations
@@ -159,7 +157,7 @@ def main_style_gsea_table(
     min_overlap: int = 1,
     n_jobs: int = 1,
 ) -> pd.DataFrame:
-    """Corrected GSEA table for one PLS component.
+    """GSEA table for one PLS component.
 
     ``gene_list`` and ``observed_scores`` are in observed ranked order; ``boot_scores``
     is ``(n_genes, n_iter)`` in that same order.
@@ -173,7 +171,7 @@ def main_style_gsea_table(
     null_es = enrichment_scores_reranked(boot_scores, prepared, n_jobs=n_jobs)
 
     nes = normalize_enrichment_scores(observed_es, null_es)
-    # The engine's own sign-aware nominal p; the correction is the null, not this.
+    # The engine's own sign-aware nominal p-value.
     p_val = nominal_pvalues_from_nulls(observed_es, null_es)
     fdr = bh_fdr(p_val)
 

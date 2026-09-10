@@ -1,6 +1,6 @@
 """Pipeline stage machine (LOAD → VALIDATE → MSN → CONTRAST → … → REPORT).
 
-Produces a deliberately small, curated output set (issue 7):
+Writes a flat, curated output set:
 
     <output>/
       merged_dataset.csv
@@ -12,7 +12,8 @@ Produces a deliberately small, curated output set (issue 7):
       plots/                                violin, scatter, surfaces, engine plots
 
 The engine writes its own verbose TSV/PNG bundle into a temporary ``.engine``
-staging folder; we extract only the curated CSVs and the plots, then discard it.
+staging folder; the curated CSVs and plots are extracted from it, then it is
+removed.
 """
 
 from __future__ import annotations
@@ -146,7 +147,7 @@ class Pipeline:
     def _stage_validate(self) -> None:
         df = self.ctx["df"]
         schema = detect_schema(df, expected_regions=self._atlas_regions())
-        # CLI --group-col / --id-col are authoritative: force them over detection (issue 4).
+        # CLI --group-col / --id-col are authoritative: force them over detection.
         gcol = self.cfg.resolved_group_col()
         overrides = {}
         if gcol:
@@ -273,8 +274,7 @@ class Pipeline:
                 eng_cfg = replace(cfg.engine, hemisphere=hemi)
                 out_tag = f"{tag}_hemi-{hemi}" if cfg.engine.compare_hemispheres else tag
                 results = engine_mod.run_transcriptomics(vec, labels_df, eng_cfg, staging, out_tag)
-                # Resolved (actually-used) spatial null per method, so a degraded
-                # (non-spin) fallback is visible in the curated CSVs, not just logs.
+                # Spatial null resolved per method, stamped onto the curated CSVs.
                 null_by_method = {
                     m: getattr(getattr(r, "metadata", None), "null_method", None)
                     for m, r in results.items()

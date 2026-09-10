@@ -74,8 +74,7 @@ class MsnpipSurfaceNullError(MsnpipEngineError):
     shuffle (``null_method='random'``).
 
     Raised when ``EngineConfig.require_surface_null=True`` and the engine
-    reports a non-surface null after being asked for ``vasa``.  This must
-    never silently reach a figure — the test it produces is invalid.
+    reports a non-surface null after being asked for ``vasa``.
     """
 
 

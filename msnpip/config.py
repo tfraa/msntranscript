@@ -18,8 +18,8 @@ class EngineConfig:
     """Knobs forwarded to the imaging-transcriptomics engine.
 
     ``hemisphere`` selects what is fed to the engine; the MSN itself is always
-    whole-cortex.  WARNING: ``"right"`` is a homotopic relabel of the phenotype,
-    not a right-hemisphere transcriptome — AHBA expression stays left-hemisphere.
+    whole-cortex.  ``"right"`` relabels the phenotype homotopically — AHBA
+    expression stays left-hemisphere.
     """
 
     methods: tuple[Literal["pls", "corr"], ...] = ("pls",)
@@ -34,8 +34,8 @@ class EngineConfig:
     n_permutations: int = 10000
     null_method: str = "vasa"
     require_surface_null: bool = True
-    # On a failed surface spin, fall back to the engine's 'auto' with a warning
-    # instead of raising. The resolved null is recorded either way.
+    # On a failed surface spin, fall back to the engine's 'auto' and warn.
+    # The resolved null is recorded either way.
     allow_null_fallback: bool = True
     # ensemble/gsea use the spin null; ora is the template over-representation test.
     enrichment_methods: tuple[Literal["ensemble", "gsea", "ora", "none"], ...] = (
@@ -52,9 +52,8 @@ class EngineConfig:
         "KEGG_2021_H",
         "DisGeNET",
     )
-    # WARNING: "engine" scores every surrogate at the observed gene positions,
-    # which is not a valid null for a rank-position statistic (pure-H0 FPR ~0.7).
-    # Its output is written as backend "gseafrozen" and is not reportable.
+    # "engine" scores every surrogate at the observed gene positions; its output is
+    # written as backend "gseafrozen".
     gsea_backend: Literal["corrected", "engine", "both"] = "corrected"
     # None = the engine's hardcoded 1000, regardless of n_permutations.
     gsea_engine_n_iter: int | None = None
