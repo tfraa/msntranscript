@@ -32,38 +32,69 @@ import matplotlib
 
 matplotlib.use("Agg")
 
-import matplotlib.image as mpimg
 import matplotlib.pyplot as plt
 import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
 
+from msnpip.report.page import _ACCENT, _INK, _MUTED, _RULE, PdfCanvas
 from msnpip.stats.glm import normalize_group_value
 
 logger = logging.getLogger("msnpip.report.builder")
 
-# Page geometry (inches) — every report page is A4 portrait.
-A4_PORTRAIT = (8.27, 11.69)
-
-# Palette for headings / rules.
-_INK = "#1f2933"
-_MUTED = "#52606d"
-_ACCENT = "#2166ac"
-_RULE = "#cbd2d9"
-_HEAD_BG = "#2166ac"
-_ROW_ALT = "#eef2f7"
 
 SIG_ALPHA = 0.05
 
+# Columns shown in an enrichment table, in display order.
+_ENRICHMENT_COLUMNS = (
+    "Term",
+    "direction",
+    "es",
+    "nes",
+    "z_score",
+    "category_score",
+    "odds_ratio",
+    "p_val",
+    "p",
+    "fdr",
+)
 
-class ReportBuilder:
+# What each enrichment backend is, and which column carries its effect. Printed
+# under the corresponding table.
+_BACKEND_EFFECT_NOTE = {
+    "ensemble": (
+        "PRIMARY (spatial-spin null). z_score is the enrichment effect "
+        "(mean z-scored gene weight per category vs the spin null)"
+    ),
+    "gsea": (
+        "secondary cross-check (spatial-spin null). nes/es is the "
+        "enrichment effect (running-sum, genes re-ranked per spin surrogate)"
+    ),
+    "gseafrozen": (
+        "INVALID NULL — the pinned engine's own GSEA, which scores every "
+        "surrogate at the OBSERVED gene positions (pure-H0 FPR ~0.7). "
+        "Shown only as a methods comparison against the re-ranked GSEA "
+        "above; never report it as inference"
+    ),
+    "ora": (
+        "CANDIDATE MECHANISMS ONLY — the pinned toolbox's own "
+        "over-representation analysis (Fisher/hypergeometric, RANDOM-GENE "
+        "null) of the gene tails at uncorrected spin p <= 0.05, for "
+        "comparability with the source literature (Martins 2022, "
+        "Giacomel 2026). NOT spatial-null- or co-expression-corrected; "
+        "never primary inference. odds_ratio is the effect"
+    ),
+}
+_DEFAULT_EFFECT_NOTE = "the leading column is the enrichment effect"
+
+
+class ReportBuilder(PdfCanvas):
     """Assemble ``<output>/report.pdf`` from curated CSVs, plots and ctx."""
 
     def __init__(self, output_dir, cfg) -> None:
+        super().__init__()
         self.output_dir = Path(output_dir)
         self.plots_dir = self.output_dir / "plots"
         self.cfg = cfg
-        self._page_no = 0  # running page counter (footer numbering)
-        self._toc: list[tuple[str, int]] = []  # (section title, page) for the Contents page
 
     # ------------------------------------------------------------------
     def build(self, ctx: dict) -> Path | None:
@@ -115,228 +146,6 @@ class ReportBuilder:
     # ------------------------------------------------------------------
     # Contents page + page numbering
     # ------------------------------------------------------------------
-    _TOC_PER_PAGE = 30
-
-    def _toc_page_count(self, n_entries: int) -> int:
-        return max(1, (n_entries + self._TOC_PER_PAGE - 1) // self._TOC_PER_PAGE)
-
-    def _toc_mark(self, title: str) -> None:
-        """Record that *title* starts on the page about to be drawn."""
-        self._toc.append((title, self._page_no + 1))
-
-    def _toc_pages(self, pdf, entries: list[tuple[str, int]]) -> None:
-        n_pages = self._toc_page_count(len(entries))
-        per = max(1, (len(entries) + n_pages - 1) // n_pages)
-        for pi in range(n_pages):
-            chunk = entries[pi * per : (pi + 1) * per]
-            fig = self._open_page()
-            top = self._heading(fig, "Contents", kicker="Report")
-            y = top - 0.015
-            for title, page in chunk:
-                lines = self._wrap(title, width=70)
-                fig.text(0.07, y, lines[0], fontsize=11, color=_INK, va="top")
-                fig.text(0.93, y, str(page), fontsize=11, color=_INK, va="top", ha="right")
-                fig.add_artist(
-                    plt.Line2D(
-                        [0.07, 0.91], [y - 0.012, y - 0.012], color=_RULE, linewidth=0.5, ls=":"
-                    )
-                )
-                y -= 0.026
-                for extra in lines[1:]:
-                    fig.text(0.085, y, extra, fontsize=11, color=_INK, va="top")
-                    y -= 0.026
-            self._close_page(pdf, fig)
-
-    # ==================================================================
-    # Low-level page primitives
-    # ==================================================================
-    def _open_page(self):
-        fig = plt.figure(figsize=A4_PORTRAIT)
-        fig.patch.set_facecolor("white")
-        return fig
-
-    def _close_page(self, pdf, fig) -> None:
-        # savefig.bbox is forced off in build() so pages keep full A4 portrait.
-        self._page_no += 1
-        if self._page_no > 1:  # leave the cover unnumbered
-            fig.text(
-                0.5, 0.028, str(self._page_no), ha="center", va="bottom", fontsize=9, color=_MUTED
-            )
-        pdf.savefig(fig)
-        plt.close(fig)
-
-    def _heading(self, fig, title: str, *, subtitle: str | None = None, kicker: str | None = None):
-        """Draw a section heading band; return the y below which content starts.
-
-        Long titles wrap onto multiple lines so they never run off the page; the
-        subtitle, rule and returned content-start shift down accordingly.
-        """
-        if kicker:
-            fig.text(0.07, 0.955, kicker.upper(), fontsize=9, color=_ACCENT, fontweight="bold")
-        cur = 0.935
-        for line in self._wrap(title, width=42):
-            fig.text(0.07, cur, line, fontsize=18, color=_INK, fontweight="bold", va="top")
-            cur -= 0.034
-        if subtitle:
-            cur += 0.004
-            for line in self._wrap(subtitle, width=74):
-                fig.text(0.07, cur, line, fontsize=10.5, color=_MUTED, va="top")
-                cur -= 0.024
-        rule_y = cur + 0.004
-        fig.add_artist(plt.Line2D([0.07, 0.93], [rule_y, rule_y], color=_RULE, linewidth=1.0))
-        return rule_y - 0.02
-
-    def _paragraphs(self, fig, blocks, *, top: float, x: float = 0.07):
-        """Render a list of text blocks top-down.
-
-        Each block is ``(text, kind)`` where *kind* is ``"h"`` (sub-heading),
-        ``"p"`` (paragraph), ``"li"`` (bullet) or ``"sp"`` (spacer).
-        """
-        y = top
-        for text, kind in blocks:
-            if kind == "sp":
-                y -= 0.018
-                continue
-            if kind == "h":
-                fig.text(x, y, text, fontsize=12, color=_ACCENT, fontweight="bold", va="top")
-                y -= 0.034
-                continue
-            prefix = "•  " if kind == "li" else ""
-            indent = x + (0.025 if kind == "li" else 0.0)
-            wrapped = self._wrap(prefix + text, width=92 if kind != "li" else 88)
-            for i, line in enumerate(wrapped):
-                fig.text(
-                    indent if i == 0 else indent + 0.018,
-                    y,
-                    line,
-                    fontsize=10.5,
-                    color=_INK,
-                    va="top",
-                )
-                y -= 0.027
-            y -= 0.006
-        return y
-
-    @staticmethod
-    def _wrap(text: str, width: int = 92) -> list[str]:
-        import textwrap
-
-        return textwrap.wrap(text, width=width) or [""]
-
-    def _figure_page(
-        self, pdf, png: Path, *, title: str, caption: str | None = None, kicker: str | None = None
-    ) -> bool:
-        if not png or not Path(png).exists():
-            return False
-        try:
-            img = mpimg.imread(png)
-        except Exception as exc:  # pragma: no cover - corrupt image
-            logger.warning("REPORT: could not read %s: %s", png, exc)
-            return False
-        fig = self._open_page()
-        if kicker:
-            fig.text(0.05, 0.975, kicker.upper(), fontsize=9, color=_ACCENT, fontweight="bold")
-        ty = 0.935
-        for line in self._wrap(title, width=64):  # wrap long titles onto the page
-            fig.text(0.05, ty, line, fontsize=14, color=_INK, fontweight="bold", va="top")
-            ty -= 0.028
-        ax = fig.add_axes([0.04, 0.07, 0.92, 0.80])
-        ax.axis("off")
-        ax.imshow(img)
-        if caption:
-            fig.text(0.05, 0.045, caption, fontsize=8.5, color=_MUTED, va="bottom")
-        self._close_page(pdf, fig)
-        return True
-
-    def _table_page(
-        self,
-        pdf,
-        *,
-        title: str,
-        df: pd.DataFrame,
-        kicker: str | None = None,
-        caption: str | None = None,
-        intro=None,
-        max_rows: int = 34,
-        bold_cells: set | None = None,
-    ) -> None:
-        """Render a DataFrame as a styled table (paginated if long).
-
-        ``bold_cells`` is an optional set of ``(row_index, column_name)`` pairs
-        (row index into the displayed rows) whose cell text is drawn bold.
-        """
-        rows = df.reset_index(drop=True)
-        truncated = len(rows) > max_rows
-        if truncated:
-            rows = rows.head(max_rows)
-        fig = self._open_page()
-        top = self._heading(fig, title, kicker=kicker)
-        if intro:
-            top = self._paragraphs(fig, intro, top=top - 0.005)
-        cap = caption or ""
-        if truncated:
-            cap = (cap + "  " if cap else "") + f"(showing first {max_rows} of {len(df)} rows)"
-        self._draw_table(fig, rows, top=top - 0.01, caption=cap, bold_cells=bold_cells)
-        self._close_page(pdf, fig)
-
-    def _draw_table(
-        self, fig, df: pd.DataFrame, *, top: float, caption: str = "", bold_cells: set | None = None
-    ) -> None:
-        ax = fig.add_axes([0.06, 0.07, 0.88, top - 0.08])
-        ax.axis("off")
-        cell_text = [
-            [self._fmt(c, v) for c, v in zip(df.columns, row)] for row in df.itertuples(index=False)
-        ]
-        if not cell_text:
-            ax.text(0.0, 1.0, "(no rows)", fontsize=10, color=_MUTED, va="top")
-            return
-        table = ax.table(
-            cellText=cell_text,
-            colLabels=[str(c) for c in df.columns],
-            cellLoc="center",
-            loc="upper center",
-        )
-        table.auto_set_font_size(False)
-        table.set_fontsize(8.5)
-        table.scale(1.0, 1.35)
-        ncol = df.shape[1]
-        cols = list(df.columns)
-        bold_cells = bold_cells or set()
-        for (r, c), cell in table.get_celld().items():
-            cell.set_edgecolor("#ffffff")
-            cell.set_linewidth(1.0)
-            if r == 0:
-                cell.set_facecolor(_HEAD_BG)
-                cell.set_text_props(color="white", fontweight="bold")
-            else:
-                cell.set_facecolor(_ROW_ALT if r % 2 == 0 else "white")
-                weight = "bold" if (r - 1, cols[c]) in bold_cells else "normal"
-                cell.set_text_props(color=_INK, fontweight=weight)
-        with contextlib.suppress(Exception):  # matplotlib version drift
-            table.auto_set_column_width(col=list(range(ncol)))
-        if caption:
-            fig.text(0.06, 0.045, caption, fontsize=8.5, color=_MUTED, va="bottom")
-
-    @staticmethod
-    def _fmt(col, val) -> str:
-        col = str(col).lower()
-        if isinstance(val, str):
-            return val if len(val) <= 42 else val[:39] + "…"
-        try:
-            f = float(val)
-        except (TypeError, ValueError):
-            return str(val)
-        if f != f:  # NaN
-            return "—"
-        if col in ("p", "p_val", "pval", "fdr", "q", "pvalue") or "p_val" in col:
-            if f < 1e-3:
-                return f"{f:.1e}"
-            return f"{f:.4f}"
-        if col in ("component", "n", "matched_size", "rank"):
-            return f"{round(f)}"
-        if abs(f) >= 1000 or (f != 0 and abs(f) < 1e-3):
-            return f"{f:.2e}"
-        return f"{f:.3f}"
 
     # ==================================================================
     # Sections
@@ -977,6 +786,51 @@ class ReportBuilder:
             caption=f"Ranked by {score_col} (ascending).",
         )
 
+    @staticmethod
+    def _enrichment_table(sub):
+        """Trim one backend x gene-set block to the rows and columns to display.
+
+        Returns the display frame, a caption describing the ranking, and the set of
+        ``(row, column)`` cells to draw bold (significant FDR).
+        """
+        score_col = next(
+            (
+                c
+                for c in ("nes", "z_score", "es", "category_score")
+                if c in sub.columns and sub[c].notna().any()
+            ),
+            None,
+        )
+        if score_col is not None:
+            signed = sub[sub[score_col].notna()]
+            pos = signed[signed[score_col] > 0].sort_values(score_col, ascending=False).head(15)
+            neg = signed[signed[score_col] < 0].sort_values(score_col, ascending=True).head(15)
+            sub = pd.concat([pos, neg], ignore_index=True)
+            rank_note = (
+                f"Top 15 positive and top 15 negative {score_col}, each ranked by |{score_col}|."
+            )
+        else:
+            sort_cols = [c for c in ("fdr", "p_val", "p") if c in sub.columns]
+            if sort_cols:
+                sub = sub.sort_values(sort_cols, kind="mergesort")
+            rank_note = "Ranked by FDR (then nominal p)."
+
+        keep = [
+            c for c in _ENRICHMENT_COLUMNS if c in sub.columns and sub[c].notna().any()
+        ] or list(sub.columns)
+        disp = sub[keep].reset_index(drop=True)
+        sig_col = next((c for c in ("fdr", "p_val", "p") if c in disp.columns), None)
+        bold = (
+            {
+                (i, sig_col)
+                for i, v in enumerate(disp[sig_col])
+                if pd.notna(v) and float(v) < SIG_ALPHA
+            }
+            if sig_col
+            else set()
+        )
+        return disp, rank_note, bold
+
     def _enrichment_section(self, pdf, tag: str, kicker: str, pretty: str) -> None:
         emitted = False
         # Engine enrichment plots (ensemble / gsea / ora dotplots & heatmaps),
@@ -999,18 +853,6 @@ class ReportBuilder:
                 emitted = True
         # Enrichment table(s) — most significant terms, one table per gene set
         # (and per backend when both ensemble and GSEA were run).
-        prefer = [
-            "Term",
-            "direction",
-            "es",
-            "nes",
-            "z_score",
-            "category_score",
-            "odds_ratio",
-            "p_val",
-            "p",
-            "fdr",
-        ]
         for path in self._glob_tagged(f"{tag}*_enrichment.csv"):
             try:
                 df = pd.read_csv(path)
@@ -1027,71 +869,10 @@ class ReportBuilder:
                 # FDR denominator: categories tested for this backend / gene set,
                 # counted before top-N trimming.
                 n_tested = len(sub)
-                # Effect-score column (NES for GSEA, z_score for ensemble).
-                score_col = next(
-                    (
-                        c
-                        for c in ("nes", "z_score", "es", "category_score")
-                        if c in sub.columns and sub[c].notna().any()
-                    ),
-                    None,
-                )
-                if score_col is not None:
-                    sv = sub[sub[score_col].notna()]
-                    # Top 15 positive and top 15 negative, each ranked by |score|.
-                    pos = sv[sv[score_col] > 0].sort_values(score_col, ascending=False).head(15)
-                    neg = sv[sv[score_col] < 0].sort_values(score_col, ascending=True).head(15)
-                    sub = pd.concat([pos, neg], ignore_index=True)
-                    rank_note = (
-                        f"Top 15 positive and top 15 negative {score_col}, each ranked by "
-                        f"|{score_col}|."
-                    )
-                else:  # no signed effect column — fall back to significance order
-                    sort_cols = [c for c in ("fdr", "p_val", "p") if c in sub.columns]
-                    if sort_cols:
-                        sub = sub.sort_values(sort_cols, kind="mergesort")
-                    rank_note = "Ranked by FDR (then nominal p)."
-                keep = [c for c in prefer if c in sub.columns and sub[c].notna().any()] or list(
-                    sub.columns
-                )
-                disp = sub[keep].reset_index(drop=True)
-                sig_col = next((c for c in ("fdr", "p_val", "p") if c in disp.columns), None)
-                bold = (
-                    {
-                        (i, sig_col)
-                        for i, v in enumerate(disp[sig_col])
-                        if pd.notna(v) and float(v) < SIG_ALPHA
-                    }
-                    if sig_col
-                    else set()
-                )
+                disp, rank_note, bold = self._enrichment_table(sub)
                 emitted = True
                 suffix = f" ({backend})" if backend else ""
-                # Per-backend role and effect-column description shown under the table.
-                effect = {
-                    "ensemble": (
-                        "PRIMARY (spatial-spin null). z_score is the enrichment effect "
-                        "(mean z-scored gene weight per category vs the spin null)"
-                    ),
-                    "gsea": (
-                        "secondary cross-check (spatial-spin null). nes/es is the "
-                        "enrichment effect (running-sum, genes re-ranked per spin surrogate)"
-                    ),
-                    "gseafrozen": (
-                        "INVALID NULL — the pinned engine's own GSEA, which scores every "
-                        "surrogate at the OBSERVED gene positions (pure-H0 FPR ~0.7). "
-                        "Shown only as a methods comparison against the re-ranked GSEA "
-                        "above; never report it as inference"
-                    ),
-                    "ora": (
-                        "CANDIDATE MECHANISMS ONLY — the pinned toolbox's own "
-                        "over-representation analysis (Fisher/hypergeometric, RANDOM-GENE "
-                        "null) of the gene tails at uncorrected spin p <= 0.05, for "
-                        "comparability with the source literature (Martins 2022, "
-                        "Giacomel 2026). NOT spatial-null- or co-expression-corrected; "
-                        "never primary inference. odds_ratio is the effect"
-                    ),
-                }.get(backend, "the leading column is the enrichment effect")
+                effect = _BACKEND_EFFECT_NOTE.get(backend, _DEFAULT_EFFECT_NOTE)
                 self._table_page(
                     pdf,
                     title=f"Enrichment terms — {geneset}{suffix}",
