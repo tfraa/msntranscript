@@ -15,7 +15,7 @@ from msnpip.msn.construct import compute_strength_maps
 from msnpip.stats.correlation import correlate_strength_with_demographic
 from msnpip.viz.distributions import plot_strength_violin
 from msnpip.viz.scatter import plot_demographic_correlation
-from msnpip.viz.surface_extra import plot_surface_with_dorsal
+from msnpip.viz.surface_extra import plot_surface_map
 from msnpip.viz.theme import (
     CASE_COLOR,
     CONTROL_COLOR,
@@ -134,22 +134,20 @@ class TestScatter:
 class TestSurfaceExtra:
     def test_unknown_view_raises(self, tmp_path):
         with pytest.raises(ValueError, match="Unknown view"):
-            plot_surface_with_dorsal(
+            plot_surface_map(
                 pd.DataFrame({"label": ["x"], "hemisphere": ["L"], "beta": [0.1]}),
                 atlas_id="dk",
                 value_column="beta",
-                title="t",
                 output_path=tmp_path / "o.png",
                 views=("sagittal",),
             )
 
     def test_unknown_mesh_kind_raises(self, tmp_path):
         with pytest.raises(ValueError, match="mesh_kind"):
-            plot_surface_with_dorsal(
+            plot_surface_map(
                 pd.DataFrame({"label": ["x"], "hemisphere": ["L"], "beta": [0.1]}),
                 atlas_id="dk",
                 value_column="beta",
-                title="t",
                 output_path=tmp_path / "o.png",
                 mesh_kind="banana",
             )

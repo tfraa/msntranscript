@@ -109,8 +109,8 @@ class ReportBuilder:
         self._dataset_page(pdf, ctx)
         self._msn_section(pdf, ctx)
         self._strength_section(pdf, ctx)
-        for tag, res, cc, kk in ctx.get("contrasts", []):
-            self._contrast_section(pdf, ctx, tag, res, cc, kk)
+        for tag, res, _cc, _kk in ctx.get("contrasts", []):
+            self._contrast_section(pdf, tag, res)
 
     # ------------------------------------------------------------------
     # Contents page + page numbering
@@ -129,7 +129,7 @@ class ReportBuilder:
         per = max(1, (len(entries) + n_pages - 1) // n_pages)
         for pi in range(n_pages):
             chunk = entries[pi * per : (pi + 1) * per]
-            fig = self._open_page(pdf)
+            fig = self._open_page()
             top = self._heading(fig, "Contents", kicker="Report")
             y = top - 0.015
             for title, page in chunk:
@@ -150,7 +150,7 @@ class ReportBuilder:
     # ==================================================================
     # Low-level page primitives
     # ==================================================================
-    def _open_page(self, pdf):
+    def _open_page(self):
         fig = plt.figure(figsize=A4_PORTRAIT)
         fig.patch.set_facecolor("white")
         return fig
@@ -186,7 +186,7 @@ class ReportBuilder:
         fig.add_artist(plt.Line2D([0.07, 0.93], [rule_y, rule_y], color=_RULE, linewidth=1.0))
         return rule_y - 0.02
 
-    def _paragraphs(self, fig, blocks, *, top: float, x: float = 0.07, width: float = 0.86):
+    def _paragraphs(self, fig, blocks, *, top: float, x: float = 0.07):
         """Render a list of text blocks top-down.
 
         Each block is ``(text, kind)`` where *kind* is ``"h"`` (sub-heading),
@@ -233,7 +233,7 @@ class ReportBuilder:
         except Exception as exc:  # pragma: no cover - corrupt image
             logger.warning("REPORT: could not read %s: %s", png, exc)
             return False
-        fig = self._open_page(pdf)
+        fig = self._open_page()
         if kicker:
             fig.text(0.05, 0.975, kicker.upper(), fontsize=9, color=_ACCENT, fontweight="bold")
         ty = 0.935
@@ -269,7 +269,7 @@ class ReportBuilder:
         truncated = len(rows) > max_rows
         if truncated:
             rows = rows.head(max_rows)
-        fig = self._open_page(pdf)
+        fig = self._open_page()
         top = self._heading(fig, title, kicker=kicker)
         if intro:
             top = self._paragraphs(fig, intro, top=top - 0.005)
@@ -356,7 +356,7 @@ class ReportBuilder:
         cfg = self.cfg
         sm = ctx.get("strength_maps")
         contrasts = [t for t, *_ in ctx.get("contrasts", [])]
-        fig = self._open_page(pdf)
+        fig = self._open_page()
         fig.text(
             0.07,
             0.86,
@@ -449,7 +449,7 @@ class ReportBuilder:
         n_regions = len(sm.region_labels) if sm is not None else 0
         gcol = getattr(schema, "group_col", None)
 
-        fig = self._open_page(pdf)
+        fig = self._open_page()
         top = self._heading(
             fig,
             "Dataset",
@@ -517,7 +517,7 @@ class ReportBuilder:
     def _msn_section(self, pdf, ctx: dict) -> None:
         self._toc_mark("2 · Morphometric Similarity Networks")
         cfg = self.cfg
-        fig = self._open_page(pdf)
+        fig = self._open_page()
         top = self._heading(
             fig,
             "Morphometric Similarity Networks",
@@ -587,7 +587,7 @@ class ReportBuilder:
 
     def _strength_section(self, pdf, ctx: dict) -> None:
         self._toc_mark("3 · Node strength by group")
-        fig = self._open_page(pdf)
+        fig = self._open_page()
         top = self._heading(
             fig,
             "Node strength by group",
@@ -671,7 +671,7 @@ class ReportBuilder:
     # ------------------------------------------------------------------
     # Per-contrast section
     # ------------------------------------------------------------------
-    def _contrast_section(self, pdf, ctx, tag, res, cc, kk) -> None:
+    def _contrast_section(self, pdf, tag, res) -> None:
         case_lbl, ctrl_lbl = tag.split("_vs_", 1)
         pretty = f"{case_lbl} vs {ctrl_lbl}"
         # A "+"-joined case label (e.g. 1+2+3) marks the pooled supplementary arm.
@@ -681,7 +681,7 @@ class ReportBuilder:
         self._toc_mark(f"4 · Case-control contrast: {pretty}{pooled_note}")
 
         # Section opener.
-        fig = self._open_page(pdf)
+        fig = self._open_page()
         subtitle = f"Group difference in node strength (statistic: {res.stat_type})"
         if pooled:
             subtitle += " — supplementary pooled analysis; the per-group contrasts are primary"
@@ -745,7 +745,7 @@ class ReportBuilder:
         self._significant_regions_page(pdf, res, pretty, kicker)
 
         # (b2) full per-region statistics table (all regions, paginated).
-        self._region_stats_pages(pdf, res, pretty, kicker)
+        self._region_stats_pages(pdf, res, kicker)
 
         # (c) significant-only surface.
         self._figure_page(
@@ -779,7 +779,7 @@ class ReportBuilder:
 
     def _significant_regions_page(self, pdf, res, pretty: str, kicker: str) -> None:
         sig = res.significant_table(alpha=SIG_ALPHA)
-        fig = self._open_page(pdf)
+        fig = self._open_page()
         top = self._heading(
             fig,
             "Significant regions",
@@ -830,7 +830,7 @@ class ReportBuilder:
         )
         self._close_page(pdf, fig)
 
-    def _region_stats_pages(self, pdf, res, pretty: str, kicker: str) -> None:
+    def _region_stats_pages(self, pdf, res, kicker: str) -> None:
         """Per-region (beta, t, Cohen's d, p, FDR), one page per hemisphere.
 
         Significant FDR values (< alpha) are drawn bold.
@@ -1116,7 +1116,7 @@ class ReportBuilder:
 
     def _enrichment_missing_page(self, pdf, tag: str, kicker: str, pretty: str) -> None:
         """Explicit note when no enrichment output was found (never silent)."""
-        fig = self._open_page(pdf)
+        fig = self._open_page()
         top = self._heading(
             fig,
             "Gene-set enrichment",

@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 
 from msnpip.atlas_align import engine_region_order, to_region_table
-from msnpip.viz.surface_extra import plot_surface_with_dorsal
+from msnpip.viz.surface_extra import plot_surface_map
 
 pytestmark = pytest.mark.slow
 
@@ -26,11 +26,10 @@ def test_dorsal_view_writes_png(tmp_path):
 
     out = tmp_path / "surface.png"
     try:
-        result = plot_surface_with_dorsal(
+        result = plot_surface_map(
             table,
             atlas_id="dk",
             value_column="beta",
-            title="synthetic contrast",
             output_path=out,
             views=("lateral", "medial", "dorsal"),
         )

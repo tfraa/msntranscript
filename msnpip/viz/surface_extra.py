@@ -1,10 +1,8 @@
-"""plot_surface_with_dorsal — cortical surface maps with lateral/medial/dorsal views.
-Reuses imaging_transcriptomics.outputs.brain primitives.
+"""Cortical surface maps, built on imaging_transcriptomics.outputs.brain.
 
-Renders a regional map on the cortical surface for the hemispheres present in the
-table (both, when available), across lateral, medial and a dorsal (top-down,
-``elev≈90``) view.  The mesh family is selectable (``pial`` or ``inflated``).
-A title and subtitle make explicit what the map is and where it comes from.
+Renders a regional map for the hemispheres present in the table across the
+requested views (``lateral``, ``medial``, ``dorsal``) on either the pial or the
+inflated mesh.
 """
 
 from __future__ import annotations
@@ -28,12 +26,11 @@ _ELEV_DORSAL = 90.0
 _HEMI_LABEL = {"left": "L", "right": "R"}
 
 
-def plot_surface_with_dorsal(
+def plot_surface_map(
     table,
     *,
     atlas_id: str,
     value_column: str,
-    title: str,
     output_path,
     views: tuple[str, ...] = ("lateral", "medial"),
     mesh_kind: str = "pial",
@@ -54,11 +51,11 @@ def plot_surface_with_dorsal(
 
     hemi_frames = brain.surface_value_frames(table)
     if not hemi_frames:
-        logger.warning("plot_surface_with_dorsal: no hemisphere frames — skipping.")
+        logger.warning("plot_surface_map: no hemisphere frames — skipping.")
         return None
     atlas = brain.get_atlas(atlas_id)
     if getattr(atlas, "surface_paths", None) is None:
-        logger.warning("plot_surface_with_dorsal: atlas %s has no surface paths.", atlas_id)
+        logger.warning("plot_surface_map: atlas %s has no surface paths.", atlas_id)
         return None
     mesh_paths = brain.surface_mesh_paths(atlas_id, mesh_kind=mesh_kind)
     if mesh_paths is None:
@@ -150,7 +147,7 @@ def plot_surface_with_dorsal(
 
     out = brain.save_figure(fig, Path(output_path))
     logger.info(
-        "plot_surface_with_dorsal: wrote %s (views=%s, mesh=%s, hemis=%s)",
+        "plot_surface_map: wrote %s (views=%s, mesh=%s, hemis=%s)",
         out,
         views,
         mesh_kind,

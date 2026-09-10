@@ -299,7 +299,7 @@ class Pipeline:
             plot_msn_matrix,
         )
         from msnpip.viz.scatter import plot_demographic_correlation
-        from msnpip.viz.surface_extra import plot_surface_with_dorsal
+        from msnpip.viz.surface_extra import plot_surface_map
 
         sm, df, schema = self.ctx["strength_maps"], self.ctx["df"], self.ctx["schema"]
         self.plots_dir.mkdir(parents=True, exist_ok=True)
@@ -375,7 +375,6 @@ class Pipeline:
                     tvals,
                     res.region_labels,
                     value_label="t-value",
-                    title=f"{case_lbl} vs {ctrl_lbl}: node-strength t-values",
                     subtitle=f"case-control contrast · {self.cfg.engine.atlas} atlas",
                     output_path=self.plots_dir / f"{tag}_tvalue_bars.png",
                     color_mode="sign",
@@ -395,17 +394,15 @@ class Pipeline:
                     regions=self.cfg.engine.regions,
                 )
                 table = to_region_table(vec, labels_df, res.stat_type)
-                title = f"{case_lbl} vs {ctrl_lbl}: node-strength {res.stat_type} contrast"
                 for mesh_kind in ("inflated", "pial"):
                     subtitle = (
                         f"MSN node-strength group contrast ({res.stat_type}) · "
                         f"{self.cfg.engine.atlas} atlas · {mesh_kind} surface · both hemispheres"
                     )
-                    plot_surface_with_dorsal(
+                    plot_surface_map(
                         table,
                         atlas_id=self.cfg.engine.atlas,
                         value_column=res.stat_type,
-                        title=title,
                         output_path=self.plots_dir / f"{tag}_surface_{mesh_kind}.png",
                         mesh_kind=mesh_kind,
                         subtitle=subtitle,
@@ -427,11 +424,10 @@ class Pipeline:
                             regions=self.cfg.engine.regions,
                         )
                         table = to_region_table(vec, labels_df, res.stat_type)
-                        plot_surface_with_dorsal(
+                        plot_surface_map(
                             table,
                             atlas_id=self.cfg.engine.atlas,
                             value_column=res.stat_type,
-                            title=f"{case_lbl} vs {ctrl_lbl}: FDR-significant regions",
                             output_path=self.plots_dir / f"{tag}_surface_significant.png",
                             mesh_kind="inflated",
                             subtitle=(
@@ -471,11 +467,10 @@ class Pipeline:
                     regions=self.cfg.engine.regions,
                 )
                 table = to_region_table(vec, labels_df, "strength")
-                plot_surface_with_dorsal(
+                plot_surface_map(
                     table,
                     atlas_id=self.cfg.engine.atlas,
                     value_column="strength",
-                    title=f"Mean node strength — group {group}",
                     output_path=self.plots_dir / f"{group}_strength_surface.png",
                     mesh_kind="inflated",
                     subtitle=(
@@ -500,7 +495,6 @@ class Pipeline:
                     plot_msn_matrix(
                         mean_mat,
                         sm.region_labels,
-                        title=f"Mean morphometric similarity — group {group}",
                         subtitle=f"{self.cfg.engine.atlas} atlas · {idx.size} subjects",
                         output_path=self.plots_dir / f"{group}_mean_msn_matrix.png",
                     )
@@ -649,7 +643,6 @@ class Pipeline:
                     sub["Term"].tolist(),
                     sub[score_col].tolist(),
                     score_label=f"{score_label} ({backend})",
-                    title=f"Gene-set enrichment: {geneset}",
                     subtitle=f"{backend} · {geneset}",
                     output_path=self.plots_dir / f"{stem}_{backend}_{geneset}_enrichment.png",
                     significance=sub[sig_col].tolist() if sig_col else None,

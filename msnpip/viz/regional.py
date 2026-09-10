@@ -49,7 +49,6 @@ def plot_hemisphere_bars(
     region_labels,
     *,
     value_label: str,
-    title: str,
     output_path,
     subtitle: str | None = None,
     color_mode: str = "sign",
@@ -182,7 +181,6 @@ def plot_msn_matrix(
     matrix,
     region_labels,
     *,
-    title: str,
     output_path,
     subtitle: str | None = None,
 ):
@@ -224,7 +222,6 @@ def plot_enrichment_bars(
     scores,
     *,
     score_label: str,
-    title: str,
     output_path,
     significance=None,
     alpha: float = 0.05,

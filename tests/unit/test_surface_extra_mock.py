@@ -1,6 +1,6 @@
 """Mocked unit test for the dorsal surface path — T4.3.
 
-Covers plot_surface_with_dorsal's dorsal branch without real surface assets, so
+Covers plot_surface_map's dorsal branch without real surface assets, so
 coverage is deterministic in CI (the real-asset render is exercised by the slow
 integration test).
 """
@@ -18,7 +18,7 @@ import numpy as np
 import pandas as pd
 
 import msnpip.viz.surface_extra as se
-from msnpip.viz.surface_extra import plot_surface_with_dorsal
+from msnpip.viz.surface_extra import plot_surface_map
 
 
 def test_dorsal_path_with_mocked_engine(tmp_path, monkeypatch):
@@ -47,11 +47,10 @@ def test_dorsal_path_with_mocked_engine(tmp_path, monkeypatch):
     monkeypatch.setattr(se.brain, "save_figure", fake_save)
 
     out = tmp_path / "surface.png"
-    result = plot_surface_with_dorsal(
+    result = plot_surface_map(
         table,
         atlas_id="dk",
         value_column="beta",
-        title="t",
         output_path=out,
         views=("lateral", "medial", "dorsal"),
     )
@@ -67,11 +66,10 @@ def test_no_finite_values_returns_none(tmp_path, monkeypatch):
         se.brain, "get_atlas", lambda a: types.SimpleNamespace(surface_paths=("a", "b"))
     )
     monkeypatch.setattr(se.brain, "surface_mesh_paths", lambda a, **k: ("a", "b"))
-    out = plot_surface_with_dorsal(
+    out = plot_surface_map(
         table,
         atlas_id="dk",
         value_column="beta",
-        title="t",
         output_path=tmp_path / "o.png",
         views=("dorsal",),
     )

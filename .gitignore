@@ -55,3 +55,6 @@ Thumbs.db
 *.npy
 # Exceptions: fixtures that ship with the package (none in v2)
 !tests/fixtures/*.csv
+
+# Local editor/agent config
+.claude/

@@ -36,7 +36,7 @@ def test_contrast_section_emits_coupled_and_per_region_violins(tmp_path):
 
     seen: list[str] = []
     rb._figure_page = lambda pdf, png, **kw: seen.append(Path(png).name) or True  # type: ignore[assignment]
-    rb._open_page = lambda pdf: plt.figure()  # type: ignore[assignment]
+    rb._open_page = lambda: plt.figure()  # type: ignore[assignment]
     rb._heading = lambda *a, **k: 0.9  # type: ignore[assignment]
     rb._paragraphs = lambda *a, **k: None  # type: ignore[assignment]
     rb._close_page = lambda pdf, fig: plt.close(fig)  # type: ignore[assignment]
@@ -57,7 +57,7 @@ def test_contrast_section_emits_coupled_and_per_region_violins(tmp_path):
         n_control=5,
         region_labels=["lh_bankssts", "lh_cuneus"],
     )
-    rb._contrast_section(None, {}, "1_vs_0", res, "1", "0")
+    rb._contrast_section(None, "1_vs_0", res)
 
     assert "1_vs_0_violin.png" in seen  # coupled per-contrast violin
     assert "1_vs_0_region-lh_bankssts_violin.png" in seen  # per-region violins (correct dir)
