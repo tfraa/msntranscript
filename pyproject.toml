@@ -33,19 +33,20 @@ dependencies = [
 
 [project.optional-dependencies]
 brainspace = ["brainspace>=0.1"]
+# Upper bounds cap the next major, so a tooling release cannot change the result
+# of a run that is not otherwise touched.
 dev = [
-    "pytest>=8.0",
-    "pytest-cov>=5.0",
-    "pytest-xdist>=3.5",
-    "ruff>=0.4",
-    "mypy>=1.10",
-    "pre-commit>=3.7",
-    "build>=1.2",
-    "types-PyYAML",
-    # Stubs must track the pinned pandas major. pandas-stubs 3.x describes the
-    # pandas 3 API and, against our pandas 2, mistypes astype(str) as
-    # Series[bool] — three false mypy errors that only ever showed up in CI,
-    # since pandas-stubs 3.x needs Python >=3.11 and can't install on 3.10.
+    "pytest>=8.0,<10",
+    "pytest-cov>=5.0,<8",
+    "pytest-xdist>=3.5,<4",
+    # Exact pin: ruff is pre-1.0, and lint/format results move between minors.
+    # Matches the CI job and the pre-commit hook.
+    "ruff==0.15.18",
+    "mypy>=1.10,<3",
+    "pre-commit>=3.7,<5",
+    "build>=1.2,<2",
+    "types-PyYAML<7",
+    # Stubs track the pinned pandas major; pandas-stubs 3.x targets pandas 3.
     "pandas-stubs<3",
 ]
 
