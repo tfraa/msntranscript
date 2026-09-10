@@ -292,157 +292,187 @@ class Pipeline:
         import matplotlib
 
         matplotlib.use("Agg")
-        from msnpip.viz.distributions import plot_strength_violin
-        from msnpip.viz.regional import (
-            plot_enrichment_bars,
-            plot_hemisphere_bars,
-            plot_msn_matrix,
-        )
-        from msnpip.viz.scatter import plot_demographic_correlation
-        from msnpip.viz.surface_extra import plot_surface_map
 
         sm, df, schema = self.ctx["strength_maps"], self.ctx["df"], self.ctx["schema"]
         self.plots_dir.mkdir(parents=True, exist_ok=True)
 
-        # Overview violin: node-strength distribution across ALL in-scope groups
-        # together (descriptive landscape). No group_labels → every group present
-        # in the scoped cohort; >2 groups draws no pairwise significance bracket.
-        import matplotlib.pyplot as _plt
+        self._figure_overview_violin(sm, df, schema)
+        for tag, res, cc, kk in self.ctx.get("contrasts", []):
+            work_df, plot_case = self._contrast_plot_frame(df, schema, cc, kk, tag)
+            self._figure_contrast_violins(tag, res, sm, work_df, schema, plot_case, kk)
+            self._figure_contrast_bars(tag, res)
+            self._figure_contrast_surfaces(tag, res)
+            self._figure_significant_surface(tag, res)
+            try:
+                self._enrichment_figures(tag)
+            except Exception as exc:
+                logger.warning("FIGURES: enrichment bars for %s failed: %s", tag, exc)
+        self._figure_correlation_scatters()
+        self._figure_group_strength_surfaces(sm)
+        self._figure_group_msn_matrices(sm)
+
+    def _contrast_plot_frame(self, df, schema, cc, kk, tag: str):
+        """Rows for one contrast, plus the label its case arm plots under.
+
+        A pooled case arm (several groups) is relabelled to the joined tag so the
+        violin has exactly two arms.
+        """
+        work_df, _, _ = self._resolve_contrast_df(df, schema, cc, kk)
+        case_lbl = tag.split("_vs_", 1)[0]
+        if isinstance(cc, (tuple, list, set, frozenset)):
+            gcol = schema.group_col
+            work_df = work_df.copy()
+            norm = work_df[gcol].map(normalize_group_value)
+            wanted = {normalize_group_value(c) for c in cc}
+            work_df.loc[norm.isin(wanted), gcol] = case_lbl
+            return work_df, case_lbl
+        return work_df, cc
+
+    def _figure_overview_violin(self, sm, df, schema) -> None:
+        """Node strength across every in-scope group; no pairwise bracket above two."""
+        import matplotlib.pyplot as plt
+
+        from msnpip.viz.distributions import plot_strength_violin
 
         try:
             fig = plot_strength_violin(sm, df, schema)
             fig.savefig(self.plots_dir / "overview_violin.png")
-            _plt.close(fig)
+            plt.close(fig)
         except Exception as exc:
             logger.warning("FIGURES: overview violin failed: %s", exc)
 
-        for tag, res, cc, kk in self.ctx.get("contrasts", []):
-            work_df, _, _ = self._resolve_contrast_df(df, schema, cc, kk)
-            case_lbl, ctrl_lbl = tag.split("_vs_", 1)
-            # For a pooled case arm (cc is a set of groups) relabel those groups to a
-            # single label so the violin has exactly two arms (pooled cases vs control).
-            plot_case = cc
-            if isinstance(cc, (tuple, list, set, frozenset)):
-                gcol = schema.group_col
-                work_df = work_df.copy()
-                norm = work_df[gcol].map(normalize_group_value)
-                wanted = {normalize_group_value(c) for c in cc}
-                work_df.loc[norm.isin(wanted), gcol] = case_lbl
-                plot_case = case_lbl
-            try:
-                fig = plot_strength_violin(sm, work_df, schema, group_labels=[plot_case, kk])
-                fig.savefig(self.plots_dir / f"{tag}_violin.png")
-                _plt.close(fig)
-            except Exception as exc:
-                logger.warning("FIGURES: violin for %s failed: %s", tag, exc)
-            # Per-region violins for the FDR-significant regions (fallback: top-5 by
-            # |t|), with the covariate-adjusted GLM FDR in the bracket so the figure
-            # matches the reported inference (not a fresh unadjusted test).
-            try:
-                fdr = res.pvalue_fdr
-                stat = res.tvalue if res.tvalue is not None else res.regional_stat
-                labels = list(res.region_labels)
-                if fdr is not None:
-                    idx = sorted(
-                        np.where(np.asarray(fdr, float) < SIG_ALPHA)[0], key=lambda i: float(fdr[i])
-                    )
-                else:
-                    idx = []
-                if not idx and stat is not None:  # nothing significant → show top-5 by |stat|
-                    idx = list(np.argsort(-np.abs(np.asarray(stat, float)))[:5])
-                for i in idx[:12]:  # cap to avoid flooding the report
-                    reg = labels[i]
-                    pv = float(fdr[i]) if fdr is not None else None
-                    f = plot_strength_violin(
-                        sm,
-                        work_df,
-                        schema,
-                        region=reg,
-                        group_labels=[plot_case, kk],
-                        pvalue=pv,
-                        pvalue_label="FDR",
-                    )
-                    safe = re.sub(r"[^A-Za-z0-9._-]", "_", str(reg))
-                    f.savefig(self.plots_dir / f"{tag}_region-{safe}_violin.png")
-                    _plt.close(f)
-            except Exception as exc:
-                logger.warning("FIGURES: per-region violins for %s failed: %s", tag, exc)
-            # Per-region t-value bars, split by hemisphere (default region order)
-            # with FDR significance asterisks.
-            try:
-                tvals = res.tvalue if res.tvalue is not None else res.regional_stat
-                plot_hemisphere_bars(
-                    tvals,
-                    res.region_labels,
-                    value_label="t-value",
-                    subtitle=f"case-control contrast · {self.cfg.engine.atlas} atlas",
-                    output_path=self.plots_dir / f"{tag}_tvalue_bars.png",
-                    color_mode="sign",
-                    significance=res.pvalue_fdr,
-                    alpha=SIG_ALPHA,
-                    sig_label="FDR",
+    def _figure_contrast_violins(self, tag, res, sm, work_df, schema, plot_case, kk) -> None:
+        """Whole-cortex violin for the contrast, then one per significant region.
+
+        Regions are the FDR-significant ones, falling back to the top five by |stat|,
+        capped at 12. The bracket carries the covariate-adjusted GLM FDR, so the
+        figure matches the reported inference rather than a fresh unadjusted test.
+        """
+        import matplotlib.pyplot as plt
+
+        from msnpip.viz.distributions import plot_strength_violin
+
+        try:
+            fig = plot_strength_violin(sm, work_df, schema, group_labels=[plot_case, kk])
+            fig.savefig(self.plots_dir / f"{tag}_violin.png")
+            plt.close(fig)
+        except Exception as exc:
+            logger.warning("FIGURES: violin for %s failed: %s", tag, exc)
+
+        try:
+            fdr = res.pvalue_fdr
+            stat = res.tvalue if res.tvalue is not None else res.regional_stat
+            labels = list(res.region_labels)
+            if fdr is not None:
+                idx = sorted(
+                    np.where(np.asarray(fdr, float) < SIG_ALPHA)[0], key=lambda i: float(fdr[i])
                 )
-            except Exception as exc:
-                logger.warning("FIGURES: contrast bars for %s failed: %s", tag, exc)
-            # Surface maps: both hemispheres, on inflated AND pial surfaces.
-            try:
-                vec, labels_df = align_strength_to_atlas(
-                    res.regional_stat,
-                    res.region_labels,
-                    atlas=self.cfg.engine.atlas,
-                    hemisphere="both",
-                    regions=self.cfg.engine.regions,
+            else:
+                idx = []
+            if not idx and stat is not None:
+                idx = list(np.argsort(-np.abs(np.asarray(stat, float)))[:5])
+            for i in idx[:12]:
+                reg = labels[i]
+                pv = float(fdr[i]) if fdr is not None else None
+                f = plot_strength_violin(
+                    sm,
+                    work_df,
+                    schema,
+                    region=reg,
+                    group_labels=[plot_case, kk],
+                    pvalue=pv,
+                    pvalue_label="FDR",
                 )
-                table = to_region_table(vec, labels_df, res.stat_type)
-                for mesh_kind in ("inflated", "pial"):
-                    subtitle = (
+                safe = re.sub(r"[^A-Za-z0-9._-]", "_", str(reg))
+                f.savefig(self.plots_dir / f"{tag}_region-{safe}_violin.png")
+                plt.close(f)
+        except Exception as exc:
+            logger.warning("FIGURES: per-region violins for %s failed: %s", tag, exc)
+
+    def _figure_contrast_bars(self, tag, res) -> None:
+        """Per-region t-values, left/right panels in default region order."""
+        from msnpip.viz.regional import plot_hemisphere_bars
+
+        try:
+            tvals = res.tvalue if res.tvalue is not None else res.regional_stat
+            plot_hemisphere_bars(
+                tvals,
+                res.region_labels,
+                value_label="t-value",
+                subtitle=f"case-control contrast · {self.cfg.engine.atlas} atlas",
+                output_path=self.plots_dir / f"{tag}_tvalue_bars.png",
+                color_mode="sign",
+                significance=res.pvalue_fdr,
+                alpha=SIG_ALPHA,
+                sig_label="FDR",
+            )
+        except Exception as exc:
+            logger.warning("FIGURES: contrast bars for %s failed: %s", tag, exc)
+
+    def _figure_contrast_surfaces(self, tag, res) -> None:
+        """Contrast map on both hemispheres, inflated and pial."""
+        from msnpip.viz.surface_extra import plot_surface_map
+
+        try:
+            vec, labels_df = align_strength_to_atlas(
+                res.regional_stat,
+                res.region_labels,
+                atlas=self.cfg.engine.atlas,
+                hemisphere="both",
+                regions=self.cfg.engine.regions,
+            )
+            table = to_region_table(vec, labels_df, res.stat_type)
+            for mesh_kind in ("inflated", "pial"):
+                plot_surface_map(
+                    table,
+                    atlas_id=self.cfg.engine.atlas,
+                    value_column=res.stat_type,
+                    output_path=self.plots_dir / f"{tag}_surface_{mesh_kind}.png",
+                    mesh_kind=mesh_kind,
+                    subtitle=(
                         f"MSN node-strength group contrast ({res.stat_type}) · "
                         f"{self.cfg.engine.atlas} atlas · {mesh_kind} surface · both hemispheres"
-                    )
-                    plot_surface_map(
-                        table,
-                        atlas_id=self.cfg.engine.atlas,
-                        value_column=res.stat_type,
-                        output_path=self.plots_dir / f"{tag}_surface_{mesh_kind}.png",
-                        mesh_kind=mesh_kind,
-                        subtitle=subtitle,
-                    )
-            except Exception as exc:
-                logger.warning("FIGURES: surface for %s failed: %s", tag, exc)
-            # Significant-only surface: non-FDR-significant regions blanked (NaN →
-            # neutral) so only the regions that survive FDR<alpha carry colour.
-            try:
-                fdr = res.pvalue_fdr
-                if fdr is not None:
-                    masked = np.where(fdr < SIG_ALPHA, res.regional_stat, np.nan)
-                    if np.isfinite(masked).any():
-                        vec, labels_df = align_strength_to_atlas(
-                            masked,
-                            res.region_labels,
-                            atlas=self.cfg.engine.atlas,
-                            hemisphere="both",
-                            regions=self.cfg.engine.regions,
-                        )
-                        table = to_region_table(vec, labels_df, res.stat_type)
-                        plot_surface_map(
-                            table,
-                            atlas_id=self.cfg.engine.atlas,
-                            value_column=res.stat_type,
-                            output_path=self.plots_dir / f"{tag}_surface_significant.png",
-                            mesh_kind="inflated",
-                            subtitle=(
-                                f"node-strength {res.stat_type} · regions with FDR < {SIG_ALPHA} · "
-                                f"{self.cfg.engine.atlas} atlas · both hemispheres"
-                            ),
-                        )
-            except Exception as exc:
-                logger.warning("FIGURES: significant surface for %s failed: %s", tag, exc)
-            # Gene-set enrichment bars (one per gene set × backend) from the
-            # curated enrichment table.
-            try:
-                self._enrichment_figures(tag, plot_enrichment_bars)
-            except Exception as exc:
-                logger.warning("FIGURES: enrichment bars for %s failed: %s", tag, exc)
+                    ),
+                )
+        except Exception as exc:
+            logger.warning("FIGURES: surface for %s failed: %s", tag, exc)
+
+    def _figure_significant_surface(self, tag, res) -> None:
+        """Same map with everything above the FDR threshold blanked to NaN."""
+        from msnpip.viz.surface_extra import plot_surface_map
+
+        try:
+            fdr = res.pvalue_fdr
+            if fdr is None:
+                return
+            masked = np.where(fdr < SIG_ALPHA, res.regional_stat, np.nan)
+            if not np.isfinite(masked).any():
+                return
+            vec, labels_df = align_strength_to_atlas(
+                masked,
+                res.region_labels,
+                atlas=self.cfg.engine.atlas,
+                hemisphere="both",
+                regions=self.cfg.engine.regions,
+            )
+            table = to_region_table(vec, labels_df, res.stat_type)
+            plot_surface_map(
+                table,
+                atlas_id=self.cfg.engine.atlas,
+                value_column=res.stat_type,
+                output_path=self.plots_dir / f"{tag}_surface_significant.png",
+                mesh_kind="inflated",
+                subtitle=(
+                    f"node-strength {res.stat_type} · regions with FDR < {SIG_ALPHA} · "
+                    f"{self.cfg.engine.atlas} atlas · both hemispheres"
+                ),
+            )
+        except Exception as exc:
+            logger.warning("FIGURES: significant surface for %s failed: %s", tag, exc)
+
+    def _figure_correlation_scatters(self) -> None:
+        """Scatter per global-scope demographic correlation."""
+        from msnpip.viz.scatter import plot_demographic_correlation
 
         for var, res in self.ctx.get("correlations", []):
             if res.scope != "global":
@@ -453,14 +483,16 @@ class Pipeline:
             except Exception as exc:
                 logger.warning("FIGURES: scatter for %s failed: %s", var, exc)
 
-        # Per-group mean node-strength maps: brain surface (viridis) + ranked bars.
+    def _figure_group_strength_surfaces(self, sm) -> None:
+        """Group-mean node strength on the inflated surface, sequential colours."""
+        from msnpip.viz.surface_extra import plot_surface_map
+
         for group, idx in self._group_indices(sm).items():
             if idx.size == 0:
                 continue
-            mean_strength = sm.strength[idx].mean(axis=0)
             try:
                 vec, labels_df = align_strength_to_atlas(
-                    mean_strength,
+                    sm.strength[idx].mean(axis=0),
                     list(sm.region_labels),
                     atlas=self.cfg.engine.atlas,
                     hemisphere="both",
@@ -483,23 +515,27 @@ class Pipeline:
             except Exception as exc:
                 logger.warning("FIGURES: strength surface for group %s failed: %s", group, exc)
 
-        # Per-group mean similarity-matrix heatmaps (needs the per-subject matrices).
-        if getattr(sm, "matrix", None) is not None and sm.matrix.ndim == 3 and sm.matrix.shape[2]:
-            for group, idx in self._group_indices(sm).items():
-                if idx.size == 0:
-                    continue
-                try:
-                    with warnings.catch_warnings():  # NaN diagonal → benign empty-slice
-                        warnings.simplefilter("ignore", category=RuntimeWarning)
-                        mean_mat = np.nanmean(sm.matrix[idx], axis=0)
-                    plot_msn_matrix(
-                        mean_mat,
-                        sm.region_labels,
-                        subtitle=f"{self.cfg.engine.atlas} atlas · {idx.size} subjects",
-                        output_path=self.plots_dir / f"{group}_mean_msn_matrix.png",
-                    )
-                except Exception as exc:
-                    logger.warning("FIGURES: mean MSN matrix for group %s failed: %s", group, exc)
+    def _figure_group_msn_matrices(self, sm) -> None:
+        """Group-mean region x region similarity heatmap."""
+        from msnpip.viz.regional import plot_msn_matrix
+
+        if getattr(sm, "matrix", None) is None or sm.matrix.ndim != 3 or not sm.matrix.shape[2]:
+            return
+        for group, idx in self._group_indices(sm).items():
+            if idx.size == 0:
+                continue
+            try:
+                with warnings.catch_warnings():  # NaN diagonal → benign empty-slice
+                    warnings.simplefilter("ignore", category=RuntimeWarning)
+                    mean_mat = np.nanmean(sm.matrix[idx], axis=0)
+                plot_msn_matrix(
+                    mean_mat,
+                    sm.region_labels,
+                    subtitle=f"{self.cfg.engine.atlas} atlas · {idx.size} subjects",
+                    output_path=self.plots_dir / f"{group}_mean_msn_matrix.png",
+                )
+            except Exception as exc:
+                logger.warning("FIGURES: mean MSN matrix for group %s failed: %s", group, exc)
 
     def _stage_report(self) -> None:
         from msnpip.report.builder import ReportBuilder
@@ -610,8 +646,10 @@ class Pipeline:
     _ENR_SCORE_COLS = ("nes", "z_score", "category_score", "es")
     _ENR_SIG_COLS = ("fdr", "p_val", "p")
 
-    def _enrichment_figures(self, tag: str, plot_enrichment_bars) -> None:
+    def _enrichment_figures(self, tag: str) -> None:
         """Make a diverging enrichment bar plot per gene set × backend."""
+        from msnpip.viz.regional import plot_enrichment_bars
+
         for path in sorted(self.out_dir.glob(f"{tag}*_enrichment.csv")):
             try:
                 df = pd.read_csv(path)
