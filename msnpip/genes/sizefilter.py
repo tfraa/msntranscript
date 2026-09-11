@@ -4,7 +4,8 @@ Terms whose size â€” counted after intersecting with the ranked gene universe â€
 outside ``[min_size, max_size]`` are dropped, and the kept terms are written to a new
 ``.gmt``.  Off by default (``min_size=1``, ``max_size=None``).
 
-Applies to the spin-null backends only; ORA is run on the unfiltered set.
+Applied once per gene set, upstream of every backend, so GCEA, GSEA and ORA test
+the same terms and each one's BH sees the same ``m``.
 """
 
 from __future__ import annotations

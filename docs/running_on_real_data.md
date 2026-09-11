@@ -123,8 +123,9 @@ Useful flags for the re-analysis:
   Note this flag *replaces* the default set rather than adding to it.
 - `--pool-cases` — with several `--contrast X 0` flags, also runs a supplementary pooled
   `{X…}_vs_0` contrast alongside the per-group ones (which stay primary).
-- `--geneset-min-size` / `--geneset-max-size` — category-size window for the spin-null
-  backends. Pre-specify it; ORA is deliberately left unfiltered.
+- `--geneset-min-size` / `--geneset-max-size` — category-size window, applied to every
+  enrichment backend so they all test the same terms. Pre-specify it. `10–500` is the
+  conventional choice; note a 500 ceiling leaves the `pooled` cell-type set with one term.
 - To drop a covariate, run again without it in `--predictors`; there is no exclude flag.
 - Node strength is fixed to the **mean** of a region's edges (Morgan/Seidlitz).
 

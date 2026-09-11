@@ -304,7 +304,8 @@ def _run_toolbox_ora(runner, gene_set, outdir: Path, cfg: EngineConfig, *, kind:
     Tail is ``p <= ora_p_threshold`` on the uncorrected spin p, split by the sign of
     the ranking statistic; each term then gets a hypergeometric test with BH within
     direction.  The term test uses the random-gene null.  Terms with zero overlap
-    with the tail are dropped before correction, so ``m`` is data-dependent.
+    with the tail are dropped before correction, so ``m`` is data-dependent even
+    when a size window has already been applied.
 
     The engine writes one file per direction with no direction column; they are
     staged, tagged and merged into the single table curation consumes.
@@ -552,7 +553,7 @@ def _run_pls_fit_once_enrich_many(
         unfiltered = _resolve_geneset(gene_set)  # bundled .gmt path when available
         sub = enr_root / label
         sub.mkdir(parents=True, exist_ok=True)
-        # The size filter applies to the spin-null backends; ORA gets the unfiltered set.
+        # One size filter for every backend, so they all test the same term set.
         resolved = _size_filter_geneset(unfiltered, cfg, gene_universe, sub, label)
         for backend in backends:
             try:
@@ -578,7 +579,7 @@ def _run_pls_fit_once_enrich_many(
                     if cfg.gsea_backend in ("engine", "both"):
                         _run_engine_gsea(res_obj, resolved, sub, cfg, kind="pls")
                 elif backend == "ora":
-                    _run_toolbox_ora(res_obj, unfiltered, sub, cfg, kind="pls")
+                    _run_toolbox_ora(res_obj, resolved, sub, cfg, kind="pls")
                 logger.info("enrichment[%s] gene set %r → %s", backend, label, sub)
             except Exception as exc:
                 logger.warning("enrichment[%s] failed for gene set %r: %s", backend, gene_set, exc)
@@ -726,7 +727,7 @@ def _run_corr_fit_once_enrich_many(
         unfiltered = _resolve_geneset(gene_set)  # bundled .gmt path when available
         sub = enr_root / label
         sub.mkdir(parents=True, exist_ok=True)
-        # Size filter for the spin-null backends only; ORA keeps the unfiltered set.
+        # One size filter for every backend, so they all test the same term set.
         resolved = _size_filter_geneset(unfiltered, cfg, gene_universe, sub, label)
         for backend in backends:
             try:
@@ -753,7 +754,7 @@ def _run_corr_fit_once_enrich_many(
                         _run_engine_gsea(analysis, resolved, sub, cfg, kind="corr")
                 elif backend == "ora":
                     # CorrAnalysis owns the toolbox's correlation ORA, not the adapter.
-                    _run_toolbox_ora(analysis, unfiltered, sub, cfg, kind="corr")
+                    _run_toolbox_ora(analysis, resolved, sub, cfg, kind="corr")
                 logger.info("enrichment[%s] gene set %r → %s", backend, label, sub)
             except Exception as exc:
                 logger.warning("enrichment[%s] failed for gene set %r: %s", backend, gene_set, exc)

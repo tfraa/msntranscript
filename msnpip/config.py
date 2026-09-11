@@ -64,7 +64,7 @@ class EngineConfig:
     geneset_min_size: int = 1
     geneset_max_size: int | None = None
     # Tail is `p <= ora_p_threshold` on the UNCORRECTED spin p-value, split by the
-    # sign of the ranking statistic. ORA always gets the unfiltered gene set.
+    # sign of the ranking statistic.
     ora_p_threshold: float = 0.05
     seed: int = 1234
     n_jobs: int = 1

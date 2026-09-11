@@ -103,15 +103,27 @@ would need a non-spatial null and are not part of the headline inference.)
   stays bit-reproducible against earlier ones. When set, terms whose size *after* intersecting with
   the ranked gene universe falls outside the window are dropped by materialising a filtered `.gmt`
   next to the enrichment output, so what was tested is auditable rather than implied by a config
-  value. It is applied to the **spin-null backends only** — `ensemble` and `gsea` share a term set
-  and an `m`; **ORA is deliberately left unfiltered**, because the pinned toolbox's ORA applies no
-  size window and the point of that backend is to reproduce the toolbox exactly. So an ORA `m` is
-  not comparable with a GCEA `m` in the same run.
-  `10–2000` is the conventional window; GSEA's own `15–500` is **wrong for this gene-set mix**
-  (`LAKE_Pooled` has a median matched size of 783 and loses 6 of 7 terms). Pre-specify the bounds —
-  tuning them on the results is p-hacking. On DK/left this filter *reduces* hits (small categories
-  have noisier scores and land in the empirical tail more often, so it strips BH mass faster than
-  it strips `m`), which is worth stating in the methods rather than hiding.
+  value. It is applied **once per gene set, upstream of every backend**, so `ensemble`, `gsea` and
+  `ora` test the same terms and each one's BH sees the same `m`.
+
+  `10–500` is the conventional window (clusterProfiler `enricher` and WebGestalt ORA both default
+  to it; GSEA uses `15–500`; Reimand et al. 2019 recommend excluding <10–15 and >200–500). The
+  floor removes terms whose score rests on two or three genes; the ceiling removes umbrella terms
+  whose significance is inflated under Fisher's exact test. Pre-specify the bounds — tuning them on
+  the results is p-hacking.
+
+  Two properties of this gene-set mix are worth stating in the methods. The cell-type sets are
+  large by construction (`LAKE_Pooled` median matched size 783), so a 500 ceiling leaves `pooled`
+  with one term — consider exempting the marker panels, as GSEA practice does for TF-target
+  collections. And the ceiling does not bite on KEGG at all: the largest KEGG term is 429 genes, so
+  generic umbrella terms such as `Pathways in cancer` (429) or `Coronavirus disease` (179) survive
+  any 500 cap. Removing those needs a ceiling nearer 200, which also removes
+  `Pathways of neurodegeneration` and the individual neurodegenerative-disease pathways.
+
+  The filter pulls the two backends in opposite directions, because their hits sit at opposite ends
+  of the size distribution: GCEA hits concentrate in small categories (filtering *reduces* hits),
+  while ORA hits concentrate in large ones (a floor *raises* hits by shrinking `m`). Report the
+  counts either way rather than choosing the window that flatters the result.
 - **Reproducing the engine's (invalid) GSEA (`--gsea-backend`).** `corrected` (default) runs the
   re-ranked backend above; `engine` runs the pinned toolbox's own `PLSGenes.gsea`/`CorrAnalysis.gsea`;
   `both` emits each. The engine's output is written as backend **`gseafrozen`**, never `gsea`, so it

@@ -317,6 +317,32 @@ class TestRunTranscriptomics:
         assert passed.endswith("GO_Biological_Process_2025.gmt")
         assert Path(passed).exists()
 
+    def test_size_filter_reaches_every_backend(self, patched, tmp_path, monkeypatch):
+        """ORA must test the same term set as the spin-null backends.
+
+        ORA used to be handed the unfiltered gene set, so a run with a size window
+        tested two different universes and the two BH denominators were not
+        comparable.
+        """
+        from msnpip import engine as engine_mod
+
+        sentinel = str(tmp_path / "lake_filtered.gmt")
+        monkeypatch.setattr(
+            engine_mod, "_size_filter_geneset", lambda *a, **k: sentinel, raising=True
+        )
+        cfg = EngineConfig(
+            methods=("pls",),
+            n_permutations=10,
+            enrichment_methods=("ensemble", "ora"),
+            gene_sets=("lake",),
+            geneset_min_size=15,
+            geneset_max_size=500,
+        )
+        run_transcriptomics(np.arange(34.0), _labels_df(34), cfg, tmp_path, "tag")
+        by_backend = {e["backend"]: e["gene_set"] for e in patched["enrich"]}
+        assert by_backend["ensemble"] == sentinel
+        assert by_backend["ora"] == sentinel
+
     def test_multiple_backends_per_geneset(self, patched, tmp_path):
         cfg = EngineConfig(
             methods=("pls",),
